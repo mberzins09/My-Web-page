@@ -491,32 +491,65 @@ namespace MartinsWeb.Services
         /// Calculates points for every user who made predictions in the tournament,
         /// creates a PredictionsHistory record, and returns it.
         /// </summary>
-        public async Task<PredictionsHistory> CompleteTournamentHistoryAsync(int tournamentId)
+        public async Task<List<PredictionsHistory>> CompleteTournamentHistoryAsync(int tournamentId)
         {
-            var tournament = await _db.Tournaments.FindAsync(tournamentId)
-                             ?? throw new InvalidOperationException("Tournament not found.");
+            var tournament = await _db.Tournaments.FindAsync(tournamentId) ?? throw new InvalidOperationException("Tournament not found.");
 
-            var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId);
+            var userGroups = await GetUserGroupsByTournamentAsync(tournamentId);
+            var results = new List<PredictionsHistory>();
 
-            var history = new PredictionsHistory
+            if (userGroups.Any())
             {
-                TournamentId   = tournamentId,
-                TournamentName = tournament.Name,
-                CompletedAt    = DateTime.UtcNow,
-                Entries        = leaderboard
-                    .Where(x => x.Points > 0)
-                    .Select(x => new PredictionsHistoryEntry
-                    {
-                        UserId     = x.User.Id,
-                        PlayerName = x.User.Username,
-                        Points     = x.Points
-                    })
-                    .ToList()
-            };
+                foreach (var ug in userGroups)
+                {
+                    var memberIds = ug.Members.Select(m => m.UserId).ToList();
+                    var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId, memberIds);
 
-            _db.PredictionsHistories.Add(history);
+                    var history = new PredictionsHistory
+                    {
+                        TournamentId = tournamentId,
+                        TournamentName = $"{tournament.Name} – {ug.Name}",
+                        CompletedAt = DateTime.UtcNow,
+                        Entries = leaderboard
+                            .Where(x => x.Points > 0)
+                            .Select(x => new PredictionsHistoryEntry
+                            {
+                                UserId = x.User.Id,
+                                PlayerName = x.User.Username,
+                                Points = x.Points
+                            })
+                            .ToList()
+                    };
+
+                    _db.PredictionsHistories.Add(history);
+                    results.Add(history);
+                }
+            }
+            else
+            {
+                // No user groups — old behaviour, one entry for everyone
+                var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId);
+                var history = new PredictionsHistory
+                {
+                    TournamentId = tournamentId,
+                    TournamentName = tournament.Name,
+                    CompletedAt = DateTime.UtcNow,
+                    Entries = leaderboard
+                        .Where(x => x.Points > 0)
+                        .Select(x => new PredictionsHistoryEntry
+                        {
+                            UserId = x.User.Id,
+                            PlayerName = x.User.Username,
+                            Points = x.Points
+                        })
+                        .ToList()
+                };
+                _db.PredictionsHistories.Add(history);
+                results.Add(history);
+            }
+
             await _db.SaveChangesAsync();
-            return history;
+            return results;
         }
 
         /// <summary>

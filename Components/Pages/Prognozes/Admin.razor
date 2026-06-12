@@ -423,6 +423,7 @@
     [Parameter] public string Slug { get; set; } = "";
 
     // ── State ──────────────────────────────────────────────────────────────────
+    List<PredictionsHistory>? completedHistories;
     Tournament? tournament;
     List<Tournament> allTournaments  = new();
     List<Game>? games;
@@ -744,13 +745,16 @@
         completeError  = false;
         try
         {
-            var h = await GameService.CompleteTournamentHistoryAsync(tournament!.Id);
-            completeMessage = $"Saved to history (#{h.Id}) with {h.Entries.Count} participant(s).";
+            var results = await GameService.CompleteTournamentHistoryAsync(tournament!.Id);
+            completeMessage = results.Count == 1
+                ? $"Saved to history (#{results[0].Id}) with {results[0].Entries.Count} participant(s)."
+                : $"Saved {results.Count} group histories: " +
+                  string.Join(", ", results.Select(h => $"\"{h.TournamentName}\" ({h.Entries.Count})"));
         }
         catch (Exception ex)
         {
             completeMessage = $"Error: {ex.Message}";
-            completeError   = true;
+            completeError = true;
         }
         finally { completing = false; }
     }

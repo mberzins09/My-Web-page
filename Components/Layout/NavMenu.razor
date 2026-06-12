@@ -47,27 +47,15 @@
 
         @if (prognozesOpen)
         {
-            @if (tournaments == null)
+            @if (activeTournaments == null)
             {
                 <div class="nav-item px-4">
                     <span class="nav-link text-muted" style="font-size:.85rem">Loading...</span>
                 </div>
             }
-            else if (!tournaments.Any())
-            {
-                <div class="nav-item px-4">
-                    <span class="nav-link text-muted" style="font-size:.85rem">No tournaments yet</span>
-                </div>
-            }
             else
             {
-                <div class="nav-item px-4">
-                    <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/history")">
-                        Tournament History
-                    </NavLink>
-                </div>
-
-                @foreach (var t in tournaments)
+                @foreach (var t in activeTournaments)
                 {
                     <div class="nav-item px-4">
                         <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/{t.Slug}/leaderboard")">
@@ -75,6 +63,35 @@
                         </NavLink>
                     </div>
                 }
+            }
+        }
+
+        <div class="nav-item px-3">
+            <button class="nav-link btn btn-link text-start w-100 p-0"
+            @onclick="TogglePrognozeArhivs">
+                <span class="bi bi-trophy-fill-nav-menu" aria-hidden="true"></span> Prognozes arhīvs
+                <span>@(prognozesArhivsOpen ? "▲" : "▼")</span>
+            </button>
+        </div>
+
+        @if (prognozesArhivsOpen)
+        {
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/history")">
+                    📜 Tournament History
+                </NavLink>
+            </div>
+
+            if (archivedTournaments != null)
+            {
+                @foreach (var t in archivedTournaments)
+                    {
+                        <div class="nav-item px-4">
+                            <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/{t.Slug}/leaderboard")">
+                                @t.Icon @t.Name
+                            </NavLink>
+                        </div>
+                    }
             }
         }
 
@@ -130,14 +147,18 @@
     bool prognozesOpen = false;
     bool latviaTTOpen  = false;
     bool _restoreNavAfterRender = false;
-    List<MartinsWeb.Models.Tournament>? tournaments;
+    List<MartinsWeb.Models.Tournament>? activeTournaments;
+    List<MartinsWeb.Models.Tournament>? archivedTournaments;
+    bool prognozesArhivsOpen = false;
     ElementReference toggleRef;
 
     protected override async Task OnInitializedAsync()
     {
         prognozesOpen = Nav.Uri.Contains("/prognozes/");
         latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt");
-        tournaments = await GameService.GetAllTournamentsAsync();
+        var all = await GameService.GetAllTournamentsAsync();
+        activeTournaments = all.Where(t => t.IsActive).ToList();
+        archivedTournaments = all.Where(t => !t.IsActive).ToList();
         Nav.LocationChanged += OnLocationChanged;
     }
 
@@ -159,6 +180,12 @@
     void TogglePrognozes()
     {
         prognozesOpen = !prognozesOpen;
+        _restoreNavAfterRender = true;
+    }
+
+    void TogglePrognozeArhivs()
+    {
+        prognozesArhivsOpen = !prognozesArhivsOpen;
         _restoreNavAfterRender = true;
     }
 

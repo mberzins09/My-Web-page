@@ -257,7 +257,7 @@
     {
         get
         {
-            var today = LatviaTime.Date;
+            var today = LatviaTime.Date.AddDays(-1);
             var all = games?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
             var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
             var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
@@ -296,8 +296,8 @@
         int max = (tournament?.PointsCalculationType) switch
         {
             "Hockey"                => 10,
-            "Hockey2" or "Football2" => 6,
-            _                       => 6
+            "Hockey2" or "Football2" => 7,
+            _                       => 7
         };
         int pct = max > 0 ? pts * 100 / max : 0;
         return pct switch
