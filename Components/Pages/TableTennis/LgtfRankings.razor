@@ -1,0 +1,328 @@
+@page "/lgtf-tt/rankings"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@inject LgtfRankingService RankingService
+@inject LgtfImportService lgtfImportService
+@inject NavigationManager Nav
+
+<h3>🏓 Latvia TT Rankings</h3>
+
+@* ── Filters ─────────────────────────────────────────────────────────────── *@
+<div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+
+    <div class="btn-group" role="group" aria-label="Gender filter">
+        <button class="btn btn-sm @(selectedGender == "all"    ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("all")'>All</button>
+        <button class="btn btn-sm @(selectedGender == "male"   ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("male")'>♂ Male</button>
+        <button class="btn btn-sm @(selectedGender == "female" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("female")'>♀ Female</button>
+    </div>
+
+    <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="activeToggle"
+               checked="@showInactive"
+               @onchange="OnToggleActive" />
+        <label class="form-check-label" for="activeToggle">Show Inactive</label>
+    </div>
+</div>
+
+@* ── Search ──────────────────────────────────────────────────────────────── *@
+<div class="mb-3" style="max-width:380px">
+    <input class="form-control" placeholder="Search by name or surname…"
+           value="@searchQuery"
+           @oninput="OnSearch" />
+</div>
+
+@* ── Content ─────────────────────────────────────────────────────────────── *@
+@if (loading)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (!players.Any())
+{
+    <p class="text-muted">No players found.</p>
+}
+else
+{
+    @* Summary line *@
+    <p class="text-muted mb-2" style="font-size:.82rem">
+        @if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            <span>Found <strong>@players.Count</strong> player(s) matching "@searchQuery"</span>
+        }
+        else
+        {
+            int from = currentPage * PageSize + 1;
+            int to   = Math.Min((currentPage + 1) * PageSize, totalCount);
+            <span>Showing <strong>@from–@to</strong> of <strong>@totalCount</strong> players</span>
+        }
+    </p>
+
+    @* ── Column headers ──────────────────────────────────────────────────── *@
+    <div class="lgtf-rankings-wrapper">
+    <div class="lgtf-rank-header">
+        <span class="lgtf-rank-old-place">Old</span>
+        <span class="lgtf-rank-new-place">New</span>
+        <span class="lgtf-rank-name">Player</span>
+        <span class="lgtf-rank-base-col" title="Base rating points">Base</span>
+        <span class="lgtf-rank-pwb-col" title="Points with bonus">+Bonus</span>
+    </div>
+
+    @* ── Player rows ─────────────────────────────────────────────────────── *@
+    <div class="lgtf-rankings-grid">
+        @foreach (var p in players)
+        {
+            bool isAll = selectedGender == "all";
+            int oldPlace  = isAll ? p.OverallPlace     : p.Place;
+            int calcPlace = isAll ? p.CalcOverallPlace : p.CalcPlace;
+            int diff = calcPlace > 0 && oldPlace > 0 ? oldPlace - calcPlace : 0; // positive = moved up
+            bool isLongText = calcPlace > 999 && Math.Abs(diff) > 99;
+                <div class="lgtf-rank-card @(p.IsActive ? "" : "lgtf-rank-inactive")"
+                 title="@(p.IsActive ? "" : "Inactive player")"
+                 @onclick="() => GoToPlayer(p)">
+
+                <span class="lgtf-rank-old-place">@(oldPlace > 0 ? oldPlace : "—")</span>
+
+                <span class="lgtf-rank-new-place">
+                    @(calcPlace > 0 ? calcPlace : "—")
+                    @if (diff != 0)
+                    {
+                        if(isLongText)
+                        {
+                            <span class="@(diff > 0 ? "text-success" : "text-danger")" style="font-size:.65rem">
+                                @(diff > 0 ? $"▲" : $"▼")
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="@(diff > 0 ? "text-success" : "text-danger")" style="font-size:.65rem">
+                                @(diff > 0 ? $"▲{diff}" : $"▼{Math.Abs(diff)}")
+                            </span>
+                        }
+                    }
+                </span>
+
+                <span class="lgtf-rank-name">
+                    @p.FullName
+                    @if (!p.IsActive)
+                    {
+                        <span class="badge bg-secondary ms-1" style="font-size:.6rem;vertical-align:middle">Inactive</span>
+                    }
+                </span>
+
+                <span class="lgtf-rank-base-col text-muted">@p.Points</span>
+                <span class="lgtf-rank-pwb-col">
+                    <strong>@p.PointsWithBonus</strong>
+                </span>
+
+            </div>
+        }
+    </div>
+    </div> @* lgtf-rankings-wrapper *@
+
+    @* ── Pagination (hidden when searching) ──────────────────────────────── *@
+    @if (string.IsNullOrWhiteSpace(searchQuery) && totalPages > 0)
+    {
+        <div class="d-flex flex-wrap gap-1 mt-3 align-items-center">
+            <button class="btn btn-sm btn-outline-primary" @onclick="PrevPage"
+                    disabled="@(currentPage == 0)">← Prev</button>
+
+            @foreach (var pg in PageNumbers())
+            {
+                if (pg < 0)
+                {
+                    <span class="px-1 text-muted">…</span>
+                }
+                else
+                {
+                    var pgCopy = pg;
+                    <button class="btn btn-sm @(pgCopy == currentPage ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => GoToPage(pgCopy)">@(pgCopy + 1)</button>
+                }
+            }
+
+            <button class="btn btn-sm btn-outline-primary" @onclick="NextPage"
+                    disabled="@(currentPage >= totalPages)">Next →</button>
+        </div>
+    }
+}
+
+@* ── Styles ──────────────────────────────────────────────────────────────── *@
+<style>
+    /* ── Constrain width so 1fr is identical for every row ──────────────── */
+    .lgtf-rankings-wrapper {
+        max-width: 700px;
+    }
+
+    /* ── Shared grid: 5 columns, name gets 1fr ───────────────────────────── */
+    .lgtf-rank-header,
+    .lgtf-rank-card {
+        display: grid;
+        /*  Old  New   Name(1fr)  Pts+Bonus  Base  */
+        grid-template-columns: 30px 58px 1fr 72px 72px;
+        align-items: center;
+        column-gap: 8px;
+        padding: 5px 10px;
+        border-radius: 6px;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────────── */
+    .lgtf-rank-header {
+        font-size: .75rem;
+        font-weight: 600;
+        color: #888;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        margin-bottom: 2px;
+    }
+
+    /* Vertical text for the two narrow place-header cells */
+    .lgtf-rank-header .lgtf-rank-old-place,
+    .lgtf-rank-header .lgtf-rank-new-place {
+        font-size: .75rem;
+        line-height: 1;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────────────────── */
+    .lgtf-rank-card {
+        cursor: pointer;
+        background: rgba(255,255,255,.04);
+        transition: background .13s;
+    }
+    .lgtf-rank-card:hover { background: rgba(255,255,255,.11); }
+    .lgtf-rank-inactive   { opacity: .5; }
+
+    /* ── Cell styles ─────────────────────────────────────────────────────── */
+    .lgtf-rank-old-place {
+        text-align: right;
+        font-weight: 600;
+        color: #888;
+        font-size: .75rem;
+        white-space: nowrap;
+    }
+
+    .lgtf-rank-new-place {
+        text-align: right;
+        font-weight: 700;
+        font-size: .75rem;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1px;
+        white-space: nowrap;
+    }
+
+    .lgtf-rank-name    { font-weight: 500; }
+    .lgtf-rank-pwb-col { text-align: right; white-space: nowrap; }
+    .lgtf-rank-base-col { text-align: right; font-size: .82rem; white-space: nowrap; }
+
+    /* ── Mobile ──────────────────────────────────────────────────────────── */
+    @@media (max-width: 576px) {
+        .lgtf-rankings-wrapper { max-width: 100%; }
+        .lgtf-rank-header,
+        .lgtf-rank-card {
+            /*  Old   New   Name(1fr)  Pts+Bonus  Base  */
+            grid-template-columns: 25px 50px 1fr 48px 48px;
+            column-gap: 3px;
+            padding: 2px 3px;
+        }
+        /* Clip points cells so they never push other columns */
+        .lgtf-rank-pwb-col,
+        .lgtf-rank-base-col { overflow: hidden; }
+    }
+</style>
+
+@code {
+    const int PageSize = 100;
+
+    List<PlayerDbEntry> players     = new();
+    int  totalCount   = 0;
+    int  currentPage  = 0;
+    int  totalPages   = 0;
+    bool loading      = true;
+    bool showInactive = false;
+    string selectedGender = "all";
+    string searchQuery    = "";
+
+    private CancellationTokenSource? _searchCts;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        StateHasChanged();
+        var (list, total) = await RankingService.GetPlayersPageAsync(
+            selectedGender, showInactive, currentPage, PageSize, searchQuery);
+        players    = list;
+        totalCount = total;
+        totalPages = total > 0 ? (total - 1) / PageSize : 0;
+        loading    = false;
+    }
+
+    async Task SetGender(string g)
+    {
+        selectedGender = g;
+        currentPage    = 0;
+        await LoadAsync();
+    }
+
+    async Task OnToggleActive(ChangeEventArgs e)
+    {
+        showInactive = (bool)(e.Value ?? false);
+        currentPage  = 0;
+        await LoadAsync();
+    }
+
+    async Task OnSearch(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+        try
+        {
+            await Task.Delay(280, token);
+            currentPage = 0;
+            await LoadAsync();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    async Task PrevPage() { if (currentPage > 0)          { currentPage--; await LoadAsync(); } }
+    async Task NextPage() { if (currentPage < totalPages) { currentPage++; await LoadAsync(); } }
+    async Task GoToPage(int pg)                            { currentPage = pg; await LoadAsync(); }
+
+    async Task GoToPlayer(PlayerDbEntry p)
+    {
+        var playerId = await lgtfImportService.GetOrCreatePlayer(p.Name, p.Surname);
+        Nav.NavigateTo($"/lgtf-tt?pid={playerId}");
+    }
+
+    /// <summary>
+    /// Returns page indices to display, using a sliding window around the
+    /// current page. -1 is used as a sentinel for the "…" ellipsis.
+    /// </summary>
+    IEnumerable<int> PageNumbers()
+    {
+        var visible = new SortedSet<int>();
+        visible.Add(0);
+        visible.Add(totalPages);
+        for (int i = Math.Max(0, currentPage - 2); i <= Math.Min(totalPages, currentPage + 2); i++)
+            visible.Add(i);
+
+        int prev = -2;
+        foreach (int pg in visible)
+        {
+            if (pg - prev > 1) yield return -1; // ellipsis
+            yield return pg;
+            prev = pg;
+        }
+    }
+}

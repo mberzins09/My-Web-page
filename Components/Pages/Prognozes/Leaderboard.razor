@@ -1,0 +1,102 @@
+@page "/prognozes/{Slug}/leaderboard"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject UserContextService UserContext
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>🏆 Leaderboard — @(tournament?.Name ?? "...")</h3>
+
+@if (tournament == null)
+{
+    <p class="text-danger">Tournament not found.</p>
+}
+else if (leaderboard == null)
+{
+    <p>Loading...</p>
+}
+else if (!leaderboard.Any())
+{
+    <p>No predictions yet.</p>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Player</th>
+                <th>Points</th>
+                <th title="Perfectly predicted scores">⭐ Perfect</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var (entry, index) in leaderboard.Select((e, i) => (e, i + 1)))
+            {
+                var perfects = perfectCounts.GetValueOrDefault(entry.User.Id, 0);
+                <tr class="@(entry.User.Id == currentUserId ? "table-warning" : "")">
+                    <td>@index</td>
+                    <td>@entry.User.Username @(entry.User.Id == currentUserId ? "👤" : "")</td>
+                    <td><strong>@entry.Points</strong></td>
+                    <td>@(perfects > 0 ? $"⭐ {perfects}" : "—")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    Tournament? tournament;
+    List<(MartinsWeb.Models.User User, int Points)>? leaderboard;
+    int? currentUserId;
+    List<int>? groupMateIds;
+    bool isGroupFiltered = true;
+    bool hasGroup = false;
+    Dictionary<int, int> perfectCounts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        currentUserId = await UserContext.GetUserIdAsync();
+
+        // Check if the current user is in a competition group for this tournament
+        if (currentUserId != null)
+        {
+            groupMateIds = await GameService.GetGroupMateUserIdsAsync(currentUserId.Value, tournament.Id);
+            hasGroup = groupMateIds != null;
+        }
+
+        await LoadLeaderboard();
+    }
+
+    async Task LoadLeaderboard()
+    {
+        if (tournament == null) return;
+        var filterIds = (isGroupFiltered && hasGroup) ? groupMateIds : null;
+        leaderboard = await GameService.GetLeaderboardByTournamentAsync(tournament.Id, filterIds);
+
+        if (leaderboard != null && leaderboard.Any())
+        {
+            var userIds = leaderboard.Select(e => e.User.Id).ToList();
+            perfectCounts = await GameService.GetPerfectCountsAsync(tournament.Id, userIds, tournament.PointsCalculationType);
+        }
+    }
+
+    async Task ShowAll()
+    {
+        isGroupFiltered = false;
+        await LoadLeaderboard();
+    }
+
+    async Task ShowGroup()
+    {
+        isGroupFiltered = true;
+        await LoadLeaderboard();
+    }
+}

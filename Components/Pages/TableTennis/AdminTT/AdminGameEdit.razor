@@ -1,0 +1,172 @@
+@page "/lgtf-tt/admin/game/{GameId:int}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject LgtfAdminService AdminSvc
+@inject NavigationManager Nav
+
+<PageTitle>Edit Game</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item"><a href="/lgtf-tt/admin">Admin</a></li>
+        @if (_competitionId > 0)
+        {
+            <li class="breadcrumb-item">
+                <a href="/lgtf-tt/admin/tournament/@_competitionId/games">Games</a>
+            </li>
+        }
+        <li class="breadcrumb-item active">Edit Game</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading…
+    </div>
+}
+else if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_g != null)
+{
+    <div class="card" style="max-width:480px">
+        <div class="card-header fw-semibold">Edit Game</div>
+        <div class="card-body">
+
+            <div class="mb-4">
+                <label class="form-label fw-semibold">Score</label>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="number" class="form-control text-center fs-4 fw-bold"
+                           style="width:80px" min="0" @bind="_s1" />
+                    <span class="fs-4 text-muted">:</span>
+                    <input type="number" class="form-control text-center fs-4 fw-bold"
+                           style="width:80px" min="0" @bind="_s2" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">
+                    Player 1
+                    @if (_s1 > _s2) { <span class="badge bg-success ms-1">Winner</span> }
+                    else if (_s2 > _s1) { <span class="badge bg-danger ms-1">Loser</span> }
+                </label>
+                <input class="form-control" @bind="_p1Name" />
+                <div class="form-text">⚠️ Name change affects this player in all tournaments.</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">
+                    Player 2
+                    @if (_s2 > _s1) { <span class="badge bg-success ms-1">Winner</span> }
+                    else if (_s1 > _s2) { <span class="badge bg-danger ms-1">Loser</span> }
+                </label>
+                <input class="form-control" @bind="_p2Name" />
+                <div class="form-text">⚠️ Name change affects this player in all tournaments.</div>
+            </div>
+
+            @if (_savedMsg != null)
+            {
+                <div class="alert alert-success py-2">@_savedMsg</div>
+            }
+            @if (_deleteMsg != null)
+            {
+                <div class="alert alert-info py-2">@_deleteMsg</div>
+            }
+
+            <div class="d-flex gap-2 mt-3 flex-wrap">
+                <button class="btn btn-success" @onclick="SaveAsync" disabled="@_busy">
+                    @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Save
+                </button>
+                <button class="btn btn-danger" @onclick="DeleteAsync" disabled="@_busy">
+                    Delete game
+                </button>
+                <button class="btn btn-outline-secondary ms-auto" @onclick="GoBack">
+                    ← Back
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int GameId { get; set; }
+
+    private AdminGameVm? _g;
+    private int     _competitionId = 0;
+    private bool    _loading = true;
+    private bool    _busy    = false;
+    private string? _error     = null;
+    private string? _savedMsg  = null;
+    private string? _deleteMsg = null;
+
+    private string _p1Name = "";
+    private string _p2Name = "";
+    private int    _s1     = 0;
+    private int    _s2     = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _g             = await AdminSvc.GetGameAsync(GameId);
+            _competitionId = await AdminSvc.GetCompetitionIdForGameAsync(GameId);
+            if (_g != null)
+            {
+                _p1Name = _g.P1Name;
+                _p2Name = _g.P2Name;
+                _s1     = _g.S1;
+                _s2     = _g.S2;
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy     = true;
+        _savedMsg = null;
+        _error    = null;
+        try
+        {
+            await AdminSvc.UpdateGameAsync(GameId, _s1, _s2, _g!.P1Id, _p1Name, _g.P2Id, _p2Name);
+            _savedMsg = "✅ Saved.";
+            if (_g != null)
+            {
+                _g.P1Name = _p1Name; _g.P2Name = _p2Name;
+                _g.S1 = _s1;        _g.S2 = _s2;
+            }
+        }
+        catch (Exception ex) { _error = $"Save error: {ex.Message}"; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        _busy = true;
+        try
+        {
+            int compId = await AdminSvc.DeleteGameAsync(GameId);
+            _deleteMsg = "🗑 Game deleted.";
+            _g = null;
+            await Task.Delay(1200);
+            Nav.NavigateTo("/lgtf-tt/admin/tournament/" + compId + "/games");
+        }
+        catch (Exception ex) { _error = $"Delete error: {ex.Message}"; _busy = false; }
+    }
+
+    private void GoBack()
+    {
+        if (_competitionId > 0)
+            Nav.NavigateTo("/lgtf-tt/admin/tournament/" + _competitionId + "/games");
+        else
+            Nav.NavigateTo("/lgtf-tt/admin");
+    }
+}

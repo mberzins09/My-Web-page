@@ -1,0 +1,410 @@
+html, body {
+    background: linear-gradient(135deg, #e0f2fe, #dcfce7);
+    min-height: 100vh;
+    background-attachment: fixed;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+a, .btn-link {
+    color: #006bb7;
+}
+
+.btn-primary {
+    color: #fff;
+    background-color: #1b6ec2;
+    border-color: #1861ac;
+}
+
+.btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
+  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+}
+
+.content {
+    padding-top: 1.1rem;
+}
+
+.features-section {
+    background: linear-gradient(180deg, rgba(5,39,103,0.9) 0%, rgba(58,6,71,0.9) 100%);
+    color: white;
+    padding: 1.5rem 1rem;
+    border-radius: 8px;
+}
+
+.features-section .feature-card {
+    background: transparent;
+    color: white;
+}
+
+.feature-card .card-body {
+    background: linear-gradient(90deg, rgba(88,0,255,0.08), rgba(24,144,255,0.06));
+}
+
+.card {
+    background-color: white;
+}
+
+.gradient-card {
+    background-image: linear-gradient(90deg, rgba(88,0,255,0.06), rgba(24,144,255,0.04));
+}
+
+.lgtf-card {
+    background-image: linear-gradient(180deg, rgba(5,39,103,0.9), rgba(58,6,71,0.9));
+    color: white;
+}
+
+.table.custom-table {
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+    color: white;
+}
+
+.table.custom-table thead th {
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.table.custom-table tbody tr:hover {
+    background: rgba(255,255,255,0.02);
+}
+
+h1:focus {
+    outline: none;
+}
+
+.valid.modified:not([type=checkbox]) {
+    outline: 1px solid #26b050;
+}
+
+.invalid {
+    outline: 1px solid #e50000;
+}
+
+.validation-message {
+    color: #e50000;
+}
+
+.blazor-error-boundary {
+    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIG92ZXJmbG93PSJoaWRkZW4iPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcDAiPjxyZWN0IHg9IjIzNSIgeT0iNTEiIHdpZHRoPSI1NiIgaGVpZ2h0PSI0OSIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMCkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMzUgLTUxKSI+PHBhdGggZD0iTTI2My41MDYgNTFDMjY0LjcxNyA1MSAyNjUuODEzIDUxLjQ4MzcgMjY2LjYwNiA1Mi4yNjU4TDI2Ny4wNTIgNTIuNzk4NyAyNjcuNTM5IDUzLjYyODMgMjkwLjE4NSA5Mi4xODMxIDI5MC41NDUgOTIuNzk1IDI5MC42NTYgOTIuOTk2QzI5MC44NzcgOTMuNTEzIDI5MSA5NC4wODE1IDI5MSA5NC42NzgyIDI5MSA5Ny4wNjUxIDI4OS4wMzggOTkgMjg2LjYxNyA5OUwyNDAuMzgzIDk5QzIzNy45NjMgOTkgMjM2IDk3LjA2NTEgMjM2IDk0LjY3ODIgMjM2IDk0LjM3OTkgMjM2LjAzMSA5NC4wODg2IDIzNi4wODkgOTMuODA3MkwyMzYuMzM4IDkzLjAxNjIgMjM2Ljg1OCA5Mi4xMzE0IDI1OS40NzMgNTMuNjI5NCAyNTkuOTYxIDUyLjc5ODUgMjYwLjQwNyA1Mi4yNjU4QzI2MS4yIDUxLjQ4MzcgMjYyLjI5NiA1MSAyNjMuNTA2IDUxWk0yNjMuNTg2IDY2LjAxODNDMjYwLjczNyA2Ni4wMTgzIDI1OS4zMTMgNjcuMTI0NSAyNTkuMzEzIDY5LjMzNyAyNTkuMzEzIDY5LjYxMDIgMjU5LjMzMiA2OS44NjA4IDI1OS4zNzEgNzAuMDg4N0wyNjEuNzk1IDg0LjAxNjEgMjY1LjM4IDg0LjAxNjEgMjY3LjgyMSA2OS43NDc1QzI2Ny44NiA2OS43MzA5IDI2Ny44NzkgNjkuNTg3NyAyNjcuODc5IDY5LjMxNzkgMjY3Ljg3OSA2Ny4xMTgyIDI2Ni40NDggNjYuMDE4MyAyNjMuNTg2IDY2LjAxODNaTTI2My41NzYgODYuMDU0N0MyNjEuMDQ5IDg2LjA1NDcgMjU5Ljc4NiA4Ny4zMDA1IDI1OS43ODYgODkuNzkyMSAyNTkuNzg2IDkyLjI4MzcgMjYxLjA0OSA5My41Mjk1IDI2My41NzYgOTMuNTI5NSAyNjYuMTE2IDkzLjUyOTUgMjY3LjM4NyA5Mi4yODM3IDI2Ny4zODcgODkuNzkyMSAyNjcuMzg3IDg3LjMwMDUgMjY2LjExNiA4Ni4wNTQ3IDI2My41NzYgODYuMDU0N1oiIGZpbGw9IiNGRkU1MDAiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvZz48L3N2Zz4=) no-repeat 1rem/1.8rem, #b32121;
+    padding: 1rem 1rem 1rem 3.7rem;
+    color: white;
+}
+
+    .blazor-error-boundary::after {
+        content: "An error has occurred."
+    }
+
+.darker-border-checkbox.form-check-input {
+    border-color: #929292;
+}
+
+.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
+    color: var(--bs-secondary-color);
+    text-align: end;
+}
+
+.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
+    text-align: start;
+}
+
+.table-dark input.form-control {
+    background-color: #212529;
+    color: #fff;
+    border-color: #495057;
+    width: 50px;
+    padding: 2px 6px;
+    height: auto;
+}
+
+.table-dark input.small-input {
+    width: 50px;
+    display: inline-block;
+}
+
+.table td, .table th {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.small-input {
+    width: 45px;
+    text-align: center;
+    padding: 2px;
+}
+
+/* ── Table Tennis card grid ─────────────────────────────────────── */
+
+.tt-grid {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    max-width: 720px;
+}
+
+.tt-card {
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 8px;
+    padding: .6rem .8rem;
+    cursor: pointer;
+    background: rgba(33,37,41,.85);       /* same dark tone as old table-dark rows */
+    color: #dee2e6;
+    transition: background .15s, border-color .15s;
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+
+.tt-card:hover {
+    background: rgba(50,55,62,.95);
+    border-color: rgba(255,255,255,.3);
+}
+
+/* Top row: name (fills space) + date (right-aligned) */
+.tt-card-top {
+    display: flex;
+    align-items: baseline;
+    gap: .5rem;
+}
+
+.tt-name {
+    flex: 1 1 0;
+    font-weight: 600;
+    font-size: .9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tt-date {
+    flex-shrink: 0;
+    font-size: .78rem;
+    color: #adb5bd;
+    white-space: nowrap;
+}
+
+/* Bottom row: coef (left) | G/W/L boxes (center) | rating (right) */
+.tt-card-bottom {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+.tt-coef {
+    font-size: .8rem;
+    color: #adb5bd;
+    white-space: nowrap;
+}
+
+.tt-gwl {
+    display: flex;
+    gap: .25rem;
+    flex: 1 1 0;
+    justify-content: center;
+}
+
+.tt-stat-box {
+    display: inline-block;
+    min-width: 40px;
+    text-align: center;
+    font-size: .8rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 4px;
+    background: rgba(255,255,255,.05);
+    color: #dee2e6;
+}
+
+.tt-wins  { color: #75b798; border-color: rgba(117,183,152,.4); }
+.tt-losses{ color: #ea868f; border-color: rgba(234,134,143,.4); }
+
+.tt-rating {
+    flex-shrink: 0;
+    font-size: .88rem;
+    min-width: 42px;
+    text-align: right;
+}
+
+/* LatviaTTTournament game cards — re-use tt-card/tt-grid */
+
+.tt-score {
+    font-size: .95rem;
+    letter-spacing: .03em;
+    flex: 1 1 0;         /* takes leftmost space in bottom row */
+}
+
+/* ── H2H game row ──────────────────────────────────────────────── */
+
+.tt-h2h-row {
+    display: flex;
+    align-items: center;
+    gap: .3rem;
+    font-size: .88rem;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+
+/* rating chip: fixed width, right-aligned for playerA, left for playerB */
+.tt-h2h-pts {
+    min-width: 34px;
+    font-size: .82rem;
+}
+
+/* player name — shrinks if needed but doesn't wrap */
+.tt-h2h-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* score block: the two set numbers and colon sit flush together */
+.tt-h2h-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    font-size: .95rem;
+    letter-spacing: .02em;
+}
+
+.tt-h2h-colon {
+    font-weight: 700;
+    padding: 0 1px;
+    color: #adb5bd;
+}
+
+/* ── Predictions card grid ─────────────────────────────────────── */
+
+.pred-grid {
+    max-width: 720px;
+}
+
+.pred-total {
+    max-width: 720px;
+    font-size: .88rem;
+    color: #adb5bd;
+    padding: .3rem .1rem;
+}
+
+.pred-card {
+    cursor: default;
+}
+
+/* Row 1: date | match name | stage */
+.pred-card-top {
+    display: flex;
+    align-items: baseline;
+    gap: .5rem;
+    flex-wrap: nowrap;
+    overflow: hidden;
+}
+
+.pred-date {
+    flex-shrink: 0;
+    font-size: .78rem;
+    color: #adb5bd;
+    white-space: nowrap;
+}
+
+.pred-match {
+    flex: 1 1 0;
+    font-weight: 600;
+    font-size: .88rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pred-stage {
+    flex-shrink: 0;
+    font-size: .75rem;
+    color: #adb5bd;
+    white-space: nowrap;
+    text-align: right;
+}
+
+/* Row 2: prediction (left, grows) | result + points (right, fixed) */
+.pred-card-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    min-height: 2rem;
+}
+
+.pred-input-col {
+    display: flex;
+    align-items: center;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* Bigger touch targets for mobile number inputs */
+.pred-score-input {
+    width: 52px !important;
+    height: 36px;
+    text-align: center;
+    font-size: 1rem;
+    padding: 2px 4px;
+}
+
+.pred-colon {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #adb5bd;
+    padding: 0 2px;
+}
+
+.pred-past {
+    font-size: .88rem;
+    color: #dee2e6;
+}
+
+/* Result + badge sit flush on the right */
+.pred-right-col {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.pred-result {
+    font-size: .88rem;
+    min-width: 44px;
+    text-align: right;
+}
+
+.pred-pts {
+    min-width: 28px;
+    text-align: right;
+    font-size: .82rem;
+}
+
+/* ── Scores prediction expand panel ───────────────────────────── */
+
+.pred-expand {
+    border-top: 1px solid rgba(255,255,255,.1);
+    margin-top: .4rem;
+    padding-top: .4rem;
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+}
+
+.pred-expand-row {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    font-size: .82rem;
+}
+
+.pred-expand-name {
+    min-width: 90px;
+    color: #adb5bd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pred-expand-score {
+    font-weight: 600;
+    color: #dee2e6;
+}

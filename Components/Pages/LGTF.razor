@@ -1,0 +1,251 @@
+@page "/lgtf"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@inject AppDbContext Db
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>🏓 LGTF Rankings</h3>
+
+<div class="card mt-3 lgtf-card" style="max-width:600px">
+    <div class="card-body">
+        <h5 class="card-title">Latvia Table Tennis Rankings App</h5>
+        <p class="card-text">
+            Track Latvian table tennis player rankings on your mobile device.
+            The app provides up-to-date rankings and player statistics.
+        </p>
+        <a href="https://play.google.com/store/apps/details?id=com.companyname.rankingapp"
+               target="_blank"
+               class="btn btn-light">
+            📱 Download on Google Play
+        </a>
+    </div>
+</div>
+
+@* ── Content entries ──────────────────────────────────────────────────────── *@
+@if (entries == null)
+{
+    <div class="mt-4 d-flex align-items-center gap-3" style="color:#888">
+        <div class="spinner-border spinner-border-sm text-secondary" role="status" aria-hidden="true"></div>
+        <span>Loading content…</span>
+    </div>
+}
+else
+{
+    @foreach (var entry in entries.OrderBy(e => e.DisplayOrder).ThenBy(e => e.CreatedAt))
+    {
+        <div class="card mt-4 lgtf-card" style="max-width:700px">
+            <div class="card-body">
+                @if (!string.IsNullOrEmpty(entry.Title))
+                {
+                    <h5 class="card-title">@entry.Title</h5>
+                }
+                @if (!string.IsNullOrEmpty(entry.ImageBase64))
+                {
+                    <img src="data:@entry.ImageMime;base64,@entry.ImageBase64"
+                         class="img-fluid rounded mb-3"
+                         style="max-height:400px; object-fit:contain" alt="@entry.Title" />
+                }
+                @if (!string.IsNullOrEmpty(entry.Body))
+                {
+                    <p class="card-text" style="white-space:pre-wrap">@entry.Body</p>
+                }
+
+                @* Admin controls *@
+                @if (isAdmin)
+                {
+                    <div class="d-flex gap-2 mt-2">
+                        <button class="btn btn-sm btn-outline-warning" @onclick="() => StartEdit(entry)">✏️ Edit</button>
+                        <button class="btn btn-sm btn-outline-danger"  @onclick="() => DeleteEntry(entry.Id)">🗑️ Delete</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@* ── Admin: add / edit form ───────────────────────────────────────────────── *@
+@if (isAdmin)
+{
+    <div class="card mt-4 border-warning" style="max-width:700px">
+        <div class="card-body">
+            <h6 class="card-title text-warning">@(editingId == null ? "➕ Add New Entry" : "✏️ Edit Entry")</h6>
+
+            <div class="mb-2">
+                <label class="form-label small">Title</label>
+                <input class="form-control form-control-sm" @bind="formTitle" placeholder="e.g. How to install the app" />
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small">Image (optional)</label>
+                <InputFile OnChange="OnImageSelected" accept="image/*" class="form-control form-control-sm" />
+                @if (!string.IsNullOrEmpty(previewBase64))
+                {
+                    <img src="data:@previewMime;base64,@previewBase64"
+                         class="img-fluid rounded mt-2" style="max-height:200px" alt="preview" />
+                }
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small">Text / Instructions</label>
+                <textarea class="form-control form-control-sm" rows="5"
+                          @bind="formBody" placeholder="Write instructions, tips, etc."></textarea>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label small">Display order (lower = first)</label>
+                <input class="form-control form-control-sm" type="number" @bind="formOrder" />
+            </div>
+
+            @if (formError != null)
+            {
+                <p class="text-danger small">@formError</p>
+            }
+
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-warning" @onclick="SaveEntry">
+                    @(editingId == null ? "Add" : "Save changes")
+                </button>
+                @if (editingId != null)
+                {
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelEdit">Cancel</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    List<LgtfEntry>? entries;
+    bool             isAdmin;
+
+    // Form state
+    int?   editingId;
+    string formTitle  = "";
+    string formBody   = "";
+    int    formOrder  = 0;
+    string? previewBase64;
+    string? previewMime;
+    string? formError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Only check auth during prerender (fast, no DB hit).
+        // Data loading is deferred to OnAfterRenderAsync so the page
+        // arrives in the browser instantly with a spinner instead of
+        // blocking for several seconds on the server.
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        isAdmin  = auth.User.IsInRole("Admin");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && entries == null)
+        {
+            await LoadEntries();
+            StateHasChanged();
+        }
+    }
+
+    async Task LoadEntries()
+    {
+        entries = await Db.LgtfEntries.ToListAsync();
+    }
+
+    void StartEdit(LgtfEntry e)
+    {
+        editingId     = e.Id;
+        formTitle     = e.Title;
+        formBody      = e.Body ?? "";
+        formOrder     = e.DisplayOrder;
+        previewBase64 = e.ImageBase64;
+        previewMime   = e.ImageMime;
+        formError     = null;
+    }
+
+    void CancelEdit()
+    {
+        editingId     = null;
+        formTitle     = "";
+        formBody      = "";
+        formOrder     = 0;
+        previewBase64 = null;
+        previewMime   = null;
+        formError     = null;
+    }
+
+    async Task OnImageSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file.Size > 5 * 1024 * 1024)        // 5 MB cap
+        {
+            formError = "Image must be under 5 MB.";
+            return;
+        }
+        formError = null;
+        previewMime = file.ContentType;
+        using var ms = new System.IO.MemoryStream();
+        await file.OpenReadStream(5 * 1024 * 1024).CopyToAsync(ms);
+        previewBase64 = Convert.ToBase64String(ms.ToArray());
+    }
+
+    async Task SaveEntry()
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(formTitle))
+        {
+            formError = "Title is required.";
+            return;
+        }
+
+        var db = Db;
+
+        if (editingId == null)
+        {
+            // New entry
+            db.LgtfEntries.Add(new LgtfEntry
+            {
+                Title        = formTitle.Trim(),
+                Body         = string.IsNullOrWhiteSpace(formBody) ? null : formBody.Trim(),
+                ImageBase64  = previewBase64,
+                ImageMime    = previewMime,
+                DisplayOrder = formOrder,
+                CreatedAt    = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            var existing = await db.LgtfEntries.FindAsync(editingId.Value);
+            if (existing == null) { formError = "Entry not found."; return; }
+
+            existing.Title        = formTitle.Trim();
+            existing.Body         = string.IsNullOrWhiteSpace(formBody) ? null : formBody.Trim();
+            existing.DisplayOrder = formOrder;
+            // Only replace image if a new one was chosen
+            if (previewBase64 != existing.ImageBase64)
+            {
+                existing.ImageBase64 = previewBase64;
+                existing.ImageMime   = previewMime;
+            }
+        }
+
+        await db.SaveChangesAsync();
+        CancelEdit();
+        await LoadEntries();
+    }
+
+    async Task DeleteEntry(int id)
+    {
+        var db = Db;
+        var entry = await db.LgtfEntries.FindAsync(id);
+        if (entry != null)
+        {
+            db.LgtfEntries.Remove(entry);
+            await db.SaveChangesAsync();
+        }
+        await LoadEntries();
+    }
+}

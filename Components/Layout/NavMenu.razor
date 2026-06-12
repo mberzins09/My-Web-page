@@ -1,0 +1,190 @@
+@using MartinsWeb.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
+@inject GameService GameService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IJSRuntime JS
+@implements IDisposable
+@rendermode InteractiveServer
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">Martins Berzins</a>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" @ref="toggleRef" />
+
+<div class="nav-menu-backdrop" @onclick="CloseMenu"></div>
+
+<div class="nav-scrollable">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/cv">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> CV
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="/lgtf">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> LGTF Rankings
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <button class="nav-link btn btn-link text-start w-100 p-0"
+                    @onclick="TogglePrognozes">
+                <span class="bi bi-trophy-fill-nav-menu" aria-hidden="true"></span> Prognozes
+                <span>@(prognozesOpen ? "▲" : "▼")</span>
+            </button>
+        </div>
+
+        @if (prognozesOpen)
+        {
+            @if (tournaments == null)
+            {
+                <div class="nav-item px-4">
+                    <span class="nav-link text-muted" style="font-size:.85rem">Loading...</span>
+                </div>
+            }
+            else if (!tournaments.Any())
+            {
+                <div class="nav-item px-4">
+                    <span class="nav-link text-muted" style="font-size:.85rem">No tournaments yet</span>
+                </div>
+            }
+            else
+            {
+                <div class="nav-item px-4">
+                    <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/history")">
+                        Tournament History
+                    </NavLink>
+                </div>
+
+                @foreach (var t in tournaments)
+                {
+                    <div class="nav-item px-4">
+                        <NavLink class="nav-link py-1 lh-sm" href="@($"/prognozes/{t.Slug}/leaderboard")">
+                            @t.Icon @t.Name
+                        </NavLink>
+                    </div>
+                }
+            }
+        }
+
+        <div class="nav-item px-3">
+            <button class="nav-link btn btn-link text-start w-100 p-0"
+                    @onclick="ToggleLatviaTT">
+                🏓 Latvia TT
+                <span>@(latviaTTOpen ? "▲" : "▼")</span>
+            </button>
+        </div>
+
+        @if (latviaTTOpen)
+        {
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="/lgtf-tt">
+                    🏆 Turnīri
+                </NavLink>
+            </div>
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="/lgtf-tt/h2h">
+                    ⚔️ H2H spēles
+                </NavLink>
+            </div>
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="/lgtf-tt/rankings">
+                   🏅 Rankings
+                </NavLink>
+            </div>
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <div class="nav-item px-4 mt-1">
+                        <NavLink class="nav-link" href="/lgtf-tt/admin" style="font-size:.88rem; opacity:.85">
+                            ⚙️ Tournaments
+                        </NavLink>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+        }
+
+        <AuthorizeView Roles="Admin">
+            <Authorized>
+                <div class="nav-item px-4 mt-1">
+                    <NavLink class="nav-link" href="/globaladmin" style="font-size:.88rem; opacity:.85">
+                        ⚙️ Global Admin
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </nav>
+</div>
+
+@code {
+    bool prognozesOpen = false;
+    bool latviaTTOpen  = false;
+    bool _restoreNavAfterRender = false;
+    List<MartinsWeb.Models.Tournament>? tournaments;
+    ElementReference toggleRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        prognozesOpen = Nav.Uri.Contains("/prognozes/");
+        latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt");
+        tournaments = await GameService.GetAllTournamentsAsync();
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("setupNavMenuEscapeKey", toggleRef);
+        }
+
+        if (_restoreNavAfterRender)
+        {
+            _restoreNavAfterRender = false;
+            // Only restore the checkbox on mobile (JS checks window width)
+            await JS.InvokeVoidAsync("openNavMenuIfMobile");
+        }
+    }
+
+    void TogglePrognozes()
+    {
+        prognozesOpen = !prognozesOpen;
+        _restoreNavAfterRender = true;
+    }
+
+    void ToggleLatviaTT()
+    {
+        latviaTTOpen = !latviaTTOpen;
+        _restoreNavAfterRender = true;
+    }
+
+    async void OnLocationChanged(object? sender,
+        Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        // Auto-close the mobile drawer whenever navigation happens
+        await InvokeAsync(async () =>
+        {
+            await JS.InvokeVoidAsync("closeNavMenu", toggleRef);
+        });
+    }
+
+    async Task CloseMenu()
+    {
+        await JS.InvokeVoidAsync("closeNavMenu", toggleRef);
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

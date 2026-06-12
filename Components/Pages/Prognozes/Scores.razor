@@ -1,0 +1,343 @@
+@page "/prognozes/{Slug}/scores"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject UserContextService UserContext
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>⚽ Scores — @(tournament?.Name ?? "...")</h3>
+
+@if (tournament == null)
+{
+    <p class="text-danger">Tournament not found.</p>
+}
+else if (matches == null)
+{
+    <p>Loading...</p>
+}
+else if (!matches.Any())
+{
+    <p>No matches added yet.</p>
+}
+else
+{
+    <div class="mb-3 d-flex flex-wrap gap-2">
+        <button class="btn btn-sm @(selectedStage == null ? "btn-primary" : "btn-outline-primary")"
+                @onclick="() => selectedStage = null">
+            All
+        </button>
+        @foreach (var stage in stages)
+        {
+            <button class="btn btn-sm @(selectedStage == stage ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => selectedStage = stage">
+                @stage
+            </button>
+        }
+    </div>
+
+    @if (!filteredGames.Any())
+    {
+        <p>No games in this stage yet.</p>
+    }
+    else
+    {
+        <div class="tt-grid pred-grid">
+            @foreach (var match in filteredGames)
+            {
+                <div class="tt-card pred-card">
+                    <div class="pred-card-top">
+                        <span class="pred-date">@match.GameDate.ToString("MMM dd HH:mm")</span>
+                        <span class="pred-match">@match.HomeTeam vs @match.AwayTeam</span>
+                        <span class="pred-stage">@match.Stage</span>
+                    </div>
+                    <div class="pred-card-bottom">
+                        <span class="pred-input-col">
+                            @if (match.HomeScore != null)
+                            {
+                                <strong>@match.HomeScore : @match.AwayScore@(match.IsOvertime ? " OT" : "")</strong>
+                            }
+                            else
+                            {
+                                <span class="text-white">TBD</span>
+                            }
+                        </span>
+                        <span class="pred-right-col">
+                            @if (match.GameDate < LatviaTime && allUserPredictions.Any())
+                            {
+                                <button class="btn btn-sm btn-outline-secondary p-0 px-2"
+                                        style="font-size:.8rem; line-height:1.6"
+                                        title="Show predictions"
+                                        @onclick="() => TogglePredictions(match.Id)">
+                                    @(expandedGameIds.Contains(match.Id) ? "▲" : "▼")
+                                </button>
+                            }
+                            <AuthorizeView Roles="Admin">
+                                @{
+                                    var calcTypeS = tournament?.PointsCalculationType ?? "Football";
+                                    var isHockeyTypeS = calcTypeS == "Hockey" || calcTypeS == "Hockey2";
+                                    var isF2PlayoffS = calcTypeS == "Football2"
+                                        && !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
+                                        && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
+                                    var canOT = (isHockeyTypeS || isF2PlayoffS)
+                                                && Math.Abs(scoreInputs[match.Id].Home - scoreInputs[match.Id].Away) == 1;
+                                }
+                                <div class="d-flex align-items-center gap-1 flex-nowrap">
+                                    <input class="form-control pred-score-input" type="number" min="0" max="20"
+                                           value="@scoreInputs[match.Id].Home"
+                                           @onchange="async e => { scoreInputs[match.Id].Home = ParseScore(e); if (Math.Abs(scoreInputs[match.Id].Home - scoreInputs[match.Id].Away) != 1) scoreInputs[match.Id].IsOvertime = false; await AutoSaveScore(match.Id); }" />
+                                    <span class="pred-colon">:</span>
+                                    <input class="form-control pred-score-input" type="number" min="0" max="20"
+                                           value="@scoreInputs[match.Id].Away"
+                                           @onchange="async e => { scoreInputs[match.Id].Away = ParseScore(e); if (Math.Abs(scoreInputs[match.Id].Home - scoreInputs[match.Id].Away) != 1) scoreInputs[match.Id].IsOvertime = false; await AutoSaveScore(match.Id); }" />
+                                    @if (canOT)
+                                    {
+                                        <div class="form-check form-check-inline ms-1 mb-0" title="Overtime?">
+                                            <input class="form-check-input" type="checkbox" id="ot_@(match.Id)"
+                                                   checked="@scoreInputs[match.Id].IsOvertime"
+                                                   @onchange="async e => { scoreInputs[match.Id].IsOvertime = (bool)(e.Value ?? false); await AutoSaveScore(match.Id); }" />
+                                            <label class="form-check-label small" for="ot_@(match.Id)">OT</label>
+                                        </div>
+                                    }
+                                    @if (justSaved.Contains(match.Id))
+                                    {
+                                        <span class="text-success ms-1" title="Saved!">✓</span>
+                                    }
+                                    else if (match.HomeScore == null)
+                                    {
+                                        <button class="btn btn-sm btn-outline-success ms-1 p-0 px-1"
+                                                style="font-size:.8rem; line-height:1.4"
+                                                title="Save score"
+                                                @onclick="async () => await AutoSaveScore(match.Id)">💾</button>
+                                    }
+                                </div>
+                            </AuthorizeView>
+                        </span>
+                    </div>
+                    @if (expandedGameIds.Contains(match.Id))
+                    {
+                        <div class="pred-expand">
+                            @{
+                                var gamePreds = allUserPredictions
+                                    .Where(up => up.pred != null && up.pred.GameId == match.Id)
+                                    .ToList();
+                            }
+                            @if (!gamePreds.Any())
+                            {
+                                <span class="text-white" style="font-size:.8rem">No predictions yet.</span>
+                            }
+                            else
+                            {
+                                <div style="font-size:.8rem; color:#ccc; margin-bottom:4px;">
+                                    <span>@PredictionDistribution(gamePreds, match)</span>
+                                </div>
+                                <div style="font-size:.8rem; color:#aaa; margin-bottom:6px;">
+                                    <span>@MostPopular(gamePreds, match)</span>
+                                </div>
+                                @foreach (var (user, pred) in gamePreds)
+                                {
+                                    var pts = match.HomeScore != null ? CalcPoints(pred!, match) : (int?)null;
+                                    
+                                    <div class="pred-expand-row">
+                                        <span class="pred-expand-name">@user.Username</span>
+                                        <span class="pred-expand-score">@pred!.PredictedHomeScore : @pred.PredictedAwayScore@(pred.PredictedIsOvertime ? " OT" : "")</span>
+                                        @if (pts != null)
+                                        {
+                                            <span class="badge @PointsBadgeClass(pts.Value)">@pts</span>
+                                        }
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    Tournament?  tournament;
+    List<Game>?  matches;
+    Dictionary<int, ScoreInput> scoreInputs = new();
+    HashSet<int> justSaved      = new();
+    HashSet<int> expandedGameIds = new();
+    string?      selectedStage;
+
+    // userId -> their predictions for this tournament (preloaded at init)
+    List<(User user, Prediction? pred)> allUserPredictions = new();
+
+    DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+
+    List<string> stages => matches?
+        .Select(g => g.Stage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .OrderBy(StageOrder)
+        .ToList() ?? new();
+
+    List<Game> filteredGames
+    {
+        get
+        {
+            var today = LatviaTime.Date;
+            var all = matches?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
+            var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
+            var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
+            return upcoming.Concat(past).ToList();
+        }
+    }
+
+    int StageOrder(string stage) => stage.ToLower() switch
+    {
+        var s when s.Contains("grupa") => 0,
+        "round of 32"   => 1,
+        "round of 16"   => 2,
+        "quarter-final" => 3,
+        "semi-final"    => 4,
+        "final"         => 5,
+        _               => 99
+    };
+
+    int ParseScore(ChangeEventArgs e)
+    {
+        int.TryParse(e.Value?.ToString(), out var v);
+        return Math.Max(0, Math.Min(20, v));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        matches = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+        foreach (var m in matches)
+            scoreInputs[m.Id] = new ScoreInput { Home = m.HomeScore ?? 0, Away = m.AwayScore ?? 0, IsOvertime = m.IsOvertime };
+
+        // Preload all group members' predictions so dropdown works without extra calls
+        var currentUserId = await UserContext.GetUserIdAsync();
+        if (currentUserId != null)
+        {
+            var groupMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
+            foreach (var user in groupMates)
+            {
+                var preds = await GameService.GetUserPredictionsByTournamentAsync(user.Id, tournament.Id);
+                foreach (var m in matches)
+                {
+                    var pred = preds.FirstOrDefault(p => p.GameId == m.Id);
+                    allUserPredictions.Add((user, pred));
+                }
+            }
+        }
+    }
+
+    int CalcPoints(Prediction p, Game g)
+    {
+        if (g.HomeScore == null || g.AwayScore == null) return 0;
+        return PointsCalculator.Calculate(
+            p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
+            g.HomeScore.Value, g.AwayScore.Value, g.IsOvertime,
+            g.Stage,
+            tournament?.PointsCalculationType ?? "Football");
+    }
+
+    string PointsBadgeClass(int pts)
+    {
+        int max = (tournament?.PointsCalculationType) switch
+        {
+            "Hockey"                => 10,
+            "Hockey2" or "Football2" => 6,
+            _                       => 6
+        };
+        int pct = max > 0 ? pts * 100 / max : 0;
+        return pct switch
+        {
+            100   => "bg-warning text-dark",
+            >= 50 => "bg-success",
+            >= 25 => "bg-info text-dark",
+            > 0   => "bg-secondary",
+            _     => "bg-danger"
+        };
+    }
+
+    void TogglePredictions(int gameId)
+    {
+        if (!expandedGameIds.Remove(gameId))
+            expandedGameIds.Add(gameId);
+    }
+
+    bool IsHockeyMode(Game match)
+    {
+        var ct = tournament?.PointsCalculationType ?? "Football";
+        if (ct == "Hockey" || ct == "Hockey2") return true;
+        if (ct == "Football2")
+            return !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
+                && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
+        return false;
+    }
+
+    string PredictionDistribution(List<(User user, Prediction? pred)> preds, Game match)
+    {
+        var ps = preds.Where(p => p.pred != null).Select(p => p.pred!).ToList();
+        if (!ps.Any()) return "";
+
+        if (IsHockeyMode(match))
+        {
+            int homeReg = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore && !p.PredictedIsOvertime);
+            int homeOT  = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore &&  p.PredictedIsOvertime);
+            int awayOT  = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore &&  p.PredictedIsOvertime);
+            int awayReg = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore && !p.PredictedIsOvertime);
+            return $"{homeReg} : (OT - {homeOT} : {awayOT}) : {awayReg}";
+        }
+        else
+        {
+            int homeWin = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore);
+            int tie     = ps.Count(p => p.PredictedHomeScore == p.PredictedAwayScore);
+            int awayWin = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore);
+            return $"{homeWin} : {tie} : {awayWin}";
+        }
+    }
+
+    // Most popular prediction(s); "Unpredictable game" if all differ
+    string MostPopular(List<(User user, Prediction? pred)> preds, Game match)
+    {
+        var ps = preds.Where(p => p.pred != null).Select(p => p.pred!).ToList();
+        if (!ps.Any()) return "";
+
+        bool hockeyMode = IsHockeyMode(match);
+
+        var groups = ps
+            .GroupBy(p => hockeyMode
+                ? $"{p.PredictedHomeScore}:{p.PredictedAwayScore}{(p.PredictedIsOvertime ? " OT" : "")}"
+                : $"{p.PredictedHomeScore}:{p.PredictedAwayScore}")
+            .Select(g => (Key: g.Key, Count: g.Count()))
+            .OrderByDescending(g => g.Count)
+            .ToList();
+
+        int maxCount = groups.First().Count;
+
+        // All different — every prediction is unique
+        if (maxCount == 1 && groups.Count > 1)
+            return "Most Popular: Unpredictable game";
+
+        var popular = groups.Where(g => g.Count == maxCount).Select(g => g.Key);
+        return $"Most Popular: {string.Join(", ", popular)}";
+    }
+
+    async Task AutoSaveScore(int matchId)
+    {
+        var s = scoreInputs[matchId];
+        await GameService.UpdateScoreAsync(matchId, s.Home, s.Away, s.IsOvertime);
+        if (tournament != null)
+            matches = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+
+        justSaved.Add(matchId);
+        StateHasChanged();
+        await Task.Delay(1500);
+        justSaved.Remove(matchId);
+        StateHasChanged();
+    }
+}

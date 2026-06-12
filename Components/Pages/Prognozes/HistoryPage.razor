@@ -1,0 +1,268 @@
+﻿@page "/prognozes/history"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>📋 Predictions History</h3>
+
+@* ── Admin: add manual entry ──────────────────────────────────────────────── *@
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        <div class="card mb-4 bg-dark border-secondary text-white">
+            <div class="card-header bg-dark border-secondary d-flex justify-content-between align-items-center">
+                <strong>➕ Add External Tournament</strong>
+                <button class="btn btn-sm btn-outline-light"
+                        @onclick="() => showManualForm = !showManualForm">
+                    @(showManualForm ? "Hide" : "Show")
+                </button>
+            </div>
+            @if (showManualForm)
+            {
+                <div class="card-body">
+                    <div class="mb-3" style="max-width:400px">
+                        <label class="form-label">Tournament Name</label>
+                        <input class="form-control" @bind="manualName" placeholder="e.g. World Cup 2026" />
+                    </div>
+
+                    <h6>Participants</h6>
+
+                    @* Registered users *@
+                    @if (allUsers != null)
+                    {
+                        <div class="d-flex flex-wrap gap-2 mb-3">
+                            @foreach (var u in allUsers)
+                            {
+                                bool included = manualEntries.Any(e => e.UserId == u.Id);
+                                <div class="d-flex align-items-center gap-1 border rounded px-2 py-1"
+                                     style="cursor:pointer; background:@(included ? "rgba(13,110,253,.25)" : "rgba(255,255,255,.04)")"
+                                     @onclick="() => ToggleManualUser(u)">
+                                    <input type="checkbox" checked="@included" class="form-check-input mt-0"
+                                           @onchange:stopPropagation="true"
+                                           @onclick="() => ToggleManualUser(u)" />
+                                    <span>@u.Username</span>
+                                    @if (included)
+                                    {
+                                        var entry = manualEntries.First(e => e.UserId == u.Id);
+                                        <input type="number" class="form-control form-control-sm ms-1"
+                                               style="width:70px"
+                                               min="0" placeholder="pts"
+                                               value="@entry.Points"
+                                               @onclick:stopPropagation="true"
+                                               @onchange="e => entry.Points = int.TryParse(e.Value?.ToString(), out var v) ? v : 0" />
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    @* Free-text extra participants *@
+                    <h6>Other Participants</h6>
+                    @foreach (var extra in manualExtras)
+                    {
+                        var localExtra = extra;
+                        <div class="d-flex gap-2 mb-1 align-items-center" style="max-width:420px">
+                            <input class="form-control" placeholder="Name"
+                                   value="@localExtra.PlayerName"
+                                   @onchange="e => localExtra.PlayerName = e.Value?.ToString() " />
+                            <input type="number" class="form-control" style="width:90px"
+                                   placeholder="pts" min="0"
+                                   value="@localExtra.Points"
+                                   @onchange="e => localExtra.Points = int.TryParse(e.Value?.ToString(), out var v) ? v : 0" />
+                            <button class="btn btn-sm btn-outline-danger"
+                                    @onclick="() => manualExtras.Remove(localExtra)">
+                                ✕
+                            </button>
+                        </div>
+                    }
+                    <button class="btn btn-sm btn-outline-secondary mt-1"
+                            @onclick="() => manualExtras.Add(new ManualExtra())">
+                        + Add Person
+                    </button>
+
+                    @if (manualError != null)
+                    {
+                        <p class="text-danger  mt-2">@manualError</p>
+                    }
+                    @if (manualMessage != null)
+                    {
+                        <p class="text-success mt-2">@manualMessage</p>
+                    }
+
+                    <div class="mt-3">
+                        <button class="btn btn-success" @onclick="SaveManual" disabled="@savingManual">
+                            @(savingManual ? "Saving…" : "💾 Save")
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@* ── History list ─────────────────────────────────────────────────────────── *@
+@if (history == null)
+{
+    <p>Loading…</p>
+}
+else if (!history.Any())
+{
+    <p class="text-muted">No history entries yet.</p>
+}
+else
+{
+    @foreach (var h in history)
+    {
+        bool expanded = expandedIds.Contains(h.Id);
+        <div class="card mb-2 bg-dark border-secondary text-white">
+            <div class="card-header bg-dark border-secondary d-flex align-items-center gap-2"
+                 style="cursor:pointer" @onclick="() => ToggleExpand(h.Id)">
+
+                @if (h.TournamentId.HasValue)
+                {
+                    <span class="badge bg-primary me-1">#@h.TournamentId</span>
+                }
+
+                <strong>@h.TournamentName</strong>
+                <span class="text-white ms-1" style="font-size:.8rem">
+                    (@h.Entries.Count participant@(h.Entries.Count == 1 ? "" : "s"))
+                </span>
+                <span class="ms-auto">@(expanded ? "▲" : "▼")</span>
+            </div>
+
+            @if (expanded)
+            {
+                <div class="card-body p-2">
+                    <table class="table table-sm table-dark mb-0">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Player</th>
+                                <th class="text-end">Points</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                int rank = 0;
+                            }
+                            @foreach (var e in h.Entries.OrderByDescending(e => e.Points))
+                            {
+                                rank++;
+                                <tr>
+                                    <td>@rank</td>
+                                    <td>@(string.IsNullOrWhiteSpace(e.PlayerName) ? e.User?.Username ?? "?" : e.PlayerName)</td>
+                                    <td class="text-end"><strong>@e.Points</strong></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <div class="align-content-lg-end">
+                        <button class="btn btn-sm btn-outline-danger ms-2"
+                                @onclick:stopPropagation="true"
+                                @onclick="() => DeleteHistory(h.Id)">
+                            Delete
+                        </button>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    }
+}
+
+@code {
+    List<PredictionsHistory>? history;
+    List<User>? allUsers;
+    HashSet<int> expandedIds = new();
+
+    // ── Manual form state ──────────────────────────────────────────────────────
+    bool showManualForm = false;
+    bool savingManual = false;
+    string manualName = "";
+    string? manualError;
+    string? manualMessage;
+
+    // Registered users who are checked in
+    List<ManualUserEntry> manualEntries = new();
+    // Free-text extra participants
+    List<ManualExtra> manualExtras = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        history = await GameService.GetAllHistoryAsync();
+        allUsers = await GameService.GetAllUsersAsync();
+    }
+
+    void ToggleExpand(int id)
+    {
+        if (!expandedIds.Remove(id)) expandedIds.Add(id);
+    }
+
+    // ── Manual form helpers ────────────────────────────────────────────────────
+
+    void ToggleManualUser(User u)
+    {
+        var existing = manualEntries.FirstOrDefault(e => e.UserId == u.Id);
+        if (existing != null)
+            manualEntries.Remove(existing);
+        else
+            manualEntries.Add(new ManualUserEntry { UserId = u.Id, PlayerName = u.Username });
+    }
+
+    async Task SaveManual()
+    {
+        manualError = null;
+        manualMessage = null;
+
+        if (string.IsNullOrWhiteSpace(manualName))
+        { manualError = "Tournament name is required."; return; }
+
+        var entries = new List<(string, int?, int)>();
+        foreach (var e in manualEntries)
+            entries.Add((e.PlayerName, e.UserId, e.Points));
+        foreach (var ex in manualExtras.Where(x => !string.IsNullOrWhiteSpace(x.PlayerName)))
+            entries.Add((ex.PlayerName.Trim(), null, ex.Points));
+
+        if (!entries.Any())
+        { manualError = "Add at least one participant."; return; }
+
+        savingManual = true;
+        try
+        {
+            var h = await GameService.SaveManualHistoryAsync(manualName.Trim(), entries);
+            manualMessage = $"Saved! (#{h.Id})";
+            manualName = "";
+            manualEntries = new();
+            manualExtras = new();
+            history = await GameService.GetAllHistoryAsync();
+        }
+        catch (Exception ex) { manualError = ex.Message; }
+        finally { savingManual = false; }
+    }
+
+    async Task DeleteHistory(int id)
+    {
+        await GameService.DeleteHistoryAsync(id);
+        history = await GameService.GetAllHistoryAsync();
+    }
+
+    // ── Helper classes (local to this component) ───────────────────────────────
+
+    private class ManualUserEntry
+    {
+        public int UserId { get; set; }
+        public string PlayerName { get; set; } = "";
+        public int Points { get; set; }
+    }
+
+    private class ManualExtra
+    {
+        public string PlayerName { get; set; } = "";
+        public int Points { get; set; }
+    }
+}

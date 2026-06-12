@@ -1,0 +1,21 @@
+﻿@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="topnav-container">
+            <TopNav />
+        </div>
+        <article class="content px-4">
+            @Body
+        </article>
+        <footer class="app-footer px-4 py-3">
+            <div class="container-fluid text-center small">
+                Built with Blazor (.NET 10) and Bootstrap
+            </div>
+        </footer>
+    </main>
+</div>

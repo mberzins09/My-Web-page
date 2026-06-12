@@ -1,0 +1,757 @@
+@page "/prognozes/{Slug}/admin"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject AuthService AuthService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject UserContextService UserContext
+
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        @if (tournament == null)
+        {
+            <p class="text-danger">Tournament not found for slug "@Slug".</p>
+        }
+        else
+        {
+            <h3>⚙️ Admin — @tournament.Icon @tournament.Name</h3>
+
+            @* ── Two-column form grid ──────────────────────────────────────────── *@
+            <hr />
+            <div class="row g-4">
+
+                @* ── Left: Add Single Game ──────────────────────────────────────── *@
+                <div class="col-12 col-xl-6">
+                    <h4>Add Single Game</h4>
+                    <input class="form-control mb-2" @bind="gameForm.HomeTeam" placeholder="Home Team" />
+                    <input class="form-control mb-2" @bind="gameForm.AwayTeam" placeholder="Away Team" />
+                    <input class="form-control mb-2" type="datetime-local" @bind="gameForm.GameDate" />
+                    <input class="form-control mb-2" @bind="gameForm.Stage"
+                           placeholder="Stage (e.g. Group A, Round of 16, Semi-Final, Final)" />
+                    <button class="btn btn-success" @onclick="AddGame">Add Game</button>
+                    @if (gameMessage != null)
+                    {
+                        <p class="text-success mt-2">@gameMessage</p>
+                    }
+                </div>
+
+                @* ── Right: Add Group ────────────────────────────────────────────── *@
+                <div class="col-12 col-xl-6">
+                    <h4>Add Group <span class="text-muted" style="font-size:.85rem; font-weight:400">(Batch Game Generator)</span></h4>
+                    <p class="text-muted mb-2" style="font-size:.9rem">
+                        All games are generated automatically. Edit dates afterwards in the Games table.
+                    </p>
+                    <input class="form-control mb-2" @bind="groupName"
+                           placeholder="Group name (e.g. Group A)" />
+                    <input class="form-control mb-2" @bind="groupEvent"
+                           placeholder="Event label (e.g. @tournament.Name)" />
+
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <label class="mb-0 text-nowrap">Teams in group:</label>
+                        <input type="number" class="form-control" style="width:90px"
+                               min="2" max="20" value="@teamCount"
+                               @onchange="OnTeamCountChanged" />
+                        <span class="text-muted" style="font-size:.85rem">
+                            → @(teamCount * (teamCount - 1) / 2) games
+                        </span>
+                    </div>
+
+                    @for (int i = 0; i < teamNames.Count; i++)
+                    {
+                        var idx = i;
+                        <input class="form-control mb-1"
+                               value="@teamNames[idx]"
+                               @onchange="e => teamNames[idx] = e.Value?.ToString() ?? String.Empty"
+                               placeholder="@($"Team {idx + 1}")" />
+                    }
+
+                    <button class="btn btn-success mt-2" @onclick="AddGroup">
+                        Create Group &amp; Generate Games
+                    </button>
+
+                    @if (groupMessage != null) { <p class="text-success mt-2">@groupMessage</p> }
+                    @if (groupError   != null) { <p class="text-danger  mt-2">@groupError</p>   }
+                </div>
+            </div>
+
+            @* ── Games Table ───────────────────────────────────────────────────── *@
+            <hr />
+            <h4>Games</h4>
+            @if (games == null || !games.Any())
+            {
+                <p>No games yet.</p>
+            }
+            else
+            {
+                <div class="mb-3 d-flex flex-wrap gap-2">
+                    <button class="btn btn-sm @(selectedStage == null ? "btn-primary" : "btn-outline-primary")"
+                            @onclick="() => selectedStage = null">
+                        All
+                    </button>
+                    @foreach (var stage in stages)
+                    {
+                        <button class="btn btn-sm @(selectedStage == stage ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => selectedStage = stage">
+                            @stage
+                        </button>
+                    }
+                </div>
+
+                <div style="overflow-x:auto">
+                <table class="table table-sm" style="min-width:700px">
+                    <thead>
+                        <tr class="table-primary">
+                            <th style="white-space:nowrap">Date</th>
+                            <th>Stage</th>
+                            <th>Home</th>
+                            <th>Away</th>
+                            <th>Score</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var game in filteredGames)
+                        {
+                            var isEditing = editingGameId == game.Id;
+                            <tr class="@(isEditing ? "table-warning" : "table-dark")">
+                                @if (isEditing)
+                                {
+                                    <td style="white-space:nowrap">
+                                        <div class="d-flex align-items-center gap-1">
+                                            <input type="number" class="form-control form-control-sm p-1"
+                                                   style="width:50px; text-align:center"
+                                                   min="1" max="31" placeholder="DD"
+                                                   @bind="editDay" />
+                                            <input type="number" class="form-control form-control-sm p-1"
+                                                   style="width:50px; text-align:center"
+                                                   min="1" max="12" placeholder="MM"
+                                                   @bind="editMonth" />
+                                            <input type="number" class="form-control form-control-sm p-1"
+                                                   style="width:64px; text-align:center"
+                                                   min="2020" max="2099" placeholder="YYYY"
+                                                   @bind="editYear" />
+                                            <input type="number" class="form-control form-control-sm p-1"
+                                                   style="width:50px; text-align:center"
+                                                   min="0" max="23" placeholder="HH"
+                                                   @bind="editHour" />
+                                            <span>:</span>
+                                            <input type="number" class="form-control form-control-sm p-1"
+                                                   style="width:50px; text-align:center"
+                                                   min="0" max="59" placeholder="MM"
+                                                   @bind="editMinute" />
+                                        </div>
+                                        @if (editDateError != null)
+                                        {
+                                            <div class="text-danger" style="font-size:.78rem; margin-top:2px">@editDateError</div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <input class="form-control form-control-sm" style="min-width:110px"
+                                               @bind="editStage" placeholder="Stage" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control form-control-sm" style="min-width:90px"
+                                               @bind="editHomeTeam" placeholder="Home" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control form-control-sm" style="min-width:90px"
+                                               @bind="editAwayTeam" placeholder="Away" />
+                                    </td>
+                                    <td>
+                                        @if (game.HomeScore != null)
+                                        {
+                                            <span>@game.HomeScore : @game.AwayScore</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td style="white-space:nowrap">
+                                        <button class="btn btn-sm btn-primary me-1" @onclick="SaveInlineEdit">Save</button>
+                                        <button class="btn btn-sm btn-secondary" @onclick="CancelInlineEdit">✕</button>
+                                    </td>
+                                }
+                                else
+                                {
+                                    <td style="white-space:nowrap">@game.GameDate.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</td>
+                                    <td>@game.Stage</td>
+                                    <td>@game.HomeTeam</td>
+                                    <td>@game.AwayTeam</td>
+                                    <td>
+                                        @if (game.HomeScore != null)
+                                        {
+                                            <span>@game.HomeScore : @game.AwayScore</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td style="white-space:nowrap">
+                                        <button class="btn btn-sm btn-outline-primary me-1"
+                                                @onclick="() => StartInlineEdit(game)">Edit</button>
+                                        <button class="btn btn-sm btn-danger"
+                                                @onclick="() => DeleteGame(game.Id)">Delete</button>
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+            }
+
+            @* ── Groups Table (this tournament) ────────────────────────────────── *@
+            <hr />
+            <h4>Groups</h4>
+            @if (groups == null || !groups.Any())
+            {
+                <p>No groups for this tournament yet.</p>
+            }
+            else
+            {
+                <table class="table table-sm">
+                    <thead>
+                        <tr class="table-primary">
+                            <th>Group</th><th>Event</th><th>Teams</th><th>Games</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var group in groups)
+                        {
+                            <tr class="@(editingGroupId == group.Id ? "table-warning" : "table-dark")">
+                                <td>@group.Name</td>
+                                <td>@group.Event</td>
+                                <td style="font-size:.85rem">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
+                                <td>@(group.Teams.Count * (group.Teams.Count - 1) / 2)</td>
+                                <td class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => StartEditGroup(group)">
+                                        Edit Teams
+                                    </button>
+                                    <button class="btn btn-sm btn-danger"
+                                            @onclick="() => DeleteGroup(group.Id)">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+
+                            @if (editingGroupId == group.Id)
+                            {
+                                <tr class="table-warning">
+                                    <td colspan="5">
+                                        <div style="max-width:460px; padding:.5rem 0">
+                                            <p class="mb-2 text-muted" style="font-size:.85rem">
+                                                Edit team names below. Games will be updated automatically to match.
+                                            </p>
+                                            @for (int i = 0; i < editTeamNames.Count; i++)
+                                            {
+                                                var idx = i;
+                                                <input class="form-control form-control-sm mb-1"
+                                                       value="@editTeamNames[idx]"
+                                                       @onchange="e => editTeamNames[idx] = e.Value?.ToString() ?? string.Empty"
+                                                       placeholder="@($"Team {idx + 1}")" />
+                                            }
+                                            @if (groupEditError != null)
+                                            {
+                                                <p class="text-danger mt-1" style="font-size:.85rem">@groupEditError</p>
+                                            }
+                                            <div class="d-flex gap-2 mt-2">
+                                                <button class="btn btn-sm btn-primary" @onclick="SaveGroupTeams">Save</button>
+                                                <button class="btn btn-sm btn-secondary" @onclick="CancelGroupEdit">Cancel</button>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+
+            @* ── Tournament Group Assignments ────────────────────────────────────── *@
+            <hr />
+            <h4>🔗 Tournament Group Assignments</h4>
+            <p class="text-muted" style="font-size:.9rem">
+                Assign or move any group to a different prediction game.
+                Changing a group's tournament also moves all its generated games.
+            </p>
+            @if (allGroups == null || !allGroups.Any())
+            {
+                <p>No groups exist yet.</p>
+            }
+            else
+            {
+                <div style="overflow-x:auto">
+                <table class="table table-sm" style="min-width:560px">
+                    <thead>
+                        <tr class="table-primary">
+                            <th>Group</th><th>Teams</th><th>Current Tournament</th><th>Assign to</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var group in allGroups)
+                        {
+                            <tr class="table-dark">
+                                <td>@group.Name</td>
+                                <td style="font-size:.85rem">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
+                                <td>
+                                    @if (group.Tournament != null)
+                                    {
+                                        <span>@group.Tournament.Icon @group.Tournament.Name</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted-dark">Unassigned</span>
+                                    }
+                                </td>
+                                <td>
+                                    <select class="form-select form-select-sm"
+                                            value="@(group.TournamentId?.ToString() ?? "")"
+                                            @onchange="e => assignSelections[group.Id] = e.Value?.ToString()">
+                                        <option value="">— Unassigned —</option>
+                                        @foreach (var t in allTournaments)
+                                        {
+                                            <option value="@t.Id">@t.Icon @t.Name</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => ApplyAssignment(group.Id)">
+                                        Apply
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                </div>
+                @if (assignMessage != null)
+                {
+                    <p class="text-success">@assignMessage</p>
+                }
+            }
+
+            @* ── User Competition Groups ───────────────────────────────────────────
+               These are groups of USERS (e.g. "Family", "Coworkers") for this
+               tournament. Users see only their group on the Leaderboard and
+               OtherUserPredictions. Users cannot see which group they are in.
+            *@ 
+            <hr />
+            <h4>👥 User Competition Groups</h4>
+            <p class="text-muted" style="font-size:.9rem">
+                Groups of users who compete together. Members see only their own group on the
+                Leaderboard and "Other User Predictions" pages. Users do <strong>not</strong> see
+                which group they belong to.
+            </p>
+
+            @* Create new group *@
+            <div class="d-flex gap-2 mb-3 align-items-center" style="max-width:420px">
+                <input class="form-control" @bind="newUGName" placeholder="Group name (e.g. Family)" />
+                <button class="btn btn-success flex-shrink-0" @onclick="CreateUserGroup">+ Add Group</button>
+            </div>
+            @if (ugMessage != null) { <p class="text-success">@ugMessage</p> }
+            @if (ugError   != null) { <p class="text-danger">@ugError</p> }
+
+            @* Existing groups and their members *@
+            @if (userGroups == null || !userGroups.Any())
+            {
+                <p class="text-muted">No user competition groups yet.</p>
+            }
+            else if (allUsers == null)
+            {
+                <p>Loading users...</p>
+            }
+            else
+            {
+                @foreach (var ug in userGroups)
+                {
+                    <div class="card mb-3 bg-dark border-secondary text-white">
+                        <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white border-secondary">
+                            <strong>@ug.Name</strong>
+                            <button class="btn btn-sm btn-danger"
+                                    @onclick="() => DeleteUserGroup(ug.Id)">Delete group</button>
+                        </div>
+                        <div class="card-body p-2">
+                            <p class="text-white-50 mb-2" style="font-size:.85rem">
+                                Check users to include in this group. A user can be in multiple groups.
+                            </p>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var user in allUsers)
+                                {
+                                    var isMember = ug.Members.Any(m => m.UserId == user.Id);
+                                    var checkId  = $"ug-{ug.Id}-u-{user.Id}";
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="@checkId"
+                                               checked="@isMember"
+                                               @onchange="async e => await ToggleUserGroupMember(ug.Id, user.Id, (bool)(e.Value ?? false))" />
+                                        <label class="form-check-label text-white" for="@checkId">@user.Username</label>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+            @* ── Complete Tournament → History ─────────────────────────────────── *@
+            <hr />
+            <h4>📋 Complete Tournament</h4>
+            <p class="text-muted" style="font-size:.9rem">
+                Calculates all prediction points for this tournament and saves the result
+                to the Predictions History. Only players with &gt;0 points are recorded.
+            </p>
+            <button class="btn btn-warning" @onclick="CompleteTournament" disabled="@completing">
+                @(completing ? "Saving…" : "✅ Complete Tournament")
+            </button>
+            @if (completeMessage != null)
+            {
+                <p class="mt-2 @(completeError ? "text-danger" : "text-success")">@completeMessage</p>
+            }
+        }
+    </Authorized>
+    <NotAuthorized>
+        <p class="text-danger">Access denied.</p>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    // ── State ──────────────────────────────────────────────────────────────────
+    Tournament? tournament;
+    List<Tournament> allTournaments  = new();
+    List<Game>? games;
+    List<TournamentGroup>? groups;
+    List<TournamentGroup>? allGroups;
+    int currentUserId;
+    string? selectedStage;
+
+    // Assignment section
+    Dictionary<int, string?> assignSelections = new();
+    string?                  assignMessage;
+
+    // Add-single-game form (top-left panel)
+    Game    gameForm    = new() { GameDate = DateTime.Now };
+    string? gameMessage;
+
+    // Group / batch form (top-right panel)
+    string       groupName  = "";
+    string       groupEvent = "";
+    int          teamCount  = 4;
+    List<string> teamNames  = new() { "", "", "", "" };
+    string?      groupMessage;
+    string?      groupError;
+
+    // ── Inline game edit state ─────────────────────────────────────────────────
+    int?    editingGameId;
+    string  editHomeTeam  = "";
+    string  editAwayTeam  = "";
+    string  editStage     = "";
+    int     editDay, editMonth, editYear, editHour, editMinute;
+    string? editDateError;
+
+    // Group team editing
+    int?         editingGroupId;
+    List<string> editTeamNames  = new();
+    string?      groupEditError;
+
+    // ── User Competition Groups state ──────────────────────────────────────────
+    List<UserGroup>? userGroups;
+    List<User>?      allUsers;
+    string           newUGName  = "";
+    string?          ugMessage;
+    string?          ugError;
+
+    // ── Complete Tournament ────────────────────────────────────────────────────
+    bool    completing     = false;
+    string? completeMessage;
+    bool    completeError  = false;
+
+    List<string> stages => games?
+        .Select(g => g.Stage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .OrderBy(StageOrder)
+        .ToList() ?? new();
+
+    List<Game> filteredGames => games?
+        .Where(g => selectedStage == null || g.Stage == selectedStage)
+        .OrderBy(g => StageOrder(g.Stage))
+        .ThenBy(g => g.GameDate)
+        .ToList() ?? new();
+
+    int StageOrder(string stage) => stage.ToLower() switch
+    {
+        var s when s.Contains("grupa") => 0,
+        "round of 32" => 1,
+        "round of 16" => 2,
+        "quarter-final" => 3,
+        "semi-final" => 4,
+        "final" => 5,
+        _ => 99
+    };
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        tournament     = await GameService.GetTournamentBySlugAsync(Slug);
+        allTournaments = await GameService.GetAllTournamentsAsync();
+        currentUserId  = (await UserContext.GetUserIdAsync()) ?? 0;
+        if (tournament != null)
+            groupEvent = tournament.Name;
+        await LoadData();
+    }
+
+    async Task LoadData()
+    {
+        allGroups = await GameService.GetAllGroupsAsync();
+
+        if (allGroups != null)
+            foreach (var g in allGroups)
+                assignSelections.TryAdd(g.Id, g.TournamentId?.ToString() ?? "");
+
+        if (tournament != null)
+        {
+            games      = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+            groups     = await GameService.GetGroupsByTournamentAsync(tournament.Id);
+            userGroups = await GameService.GetUserGroupsByTournamentAsync(tournament.Id);
+            allUsers   = await GameService.GetAllUsersAsync();
+        }
+    }
+
+    // ── Add single game ────────────────────────────────────────────────────────
+    async Task AddGame()
+    {
+        gameForm.TournamentId = tournament!.Id;
+        await GameService.AddMatchAsync(gameForm);
+        gameForm    = new() { GameDate = DateTime.Now };
+        gameMessage = "Game added!";
+        await LoadData();
+        await Task.Delay(2000);
+        gameMessage = null;
+    }
+
+    // ── Inline game edit ───────────────────────────────────────────────────────
+    void StartInlineEdit(Game game)
+    {
+        editingGameId = game.Id;
+        editHomeTeam  = game.HomeTeam;
+        editAwayTeam  = game.AwayTeam;
+        editStage     = game.Stage;
+        editDateError = null;
+
+        var local = game.GameDate.Kind == DateTimeKind.Utc
+            ? game.GameDate.ToLocalTime()
+            : game.GameDate;
+
+        editDay    = local.Day;
+        editMonth  = local.Month;
+        editYear   = local.Year;
+        editHour   = local.Hour;
+        editMinute = local.Minute;
+    }
+
+    void CancelInlineEdit()
+    {
+        editingGameId = null;
+        editDateError = null;
+    }
+
+    async Task SaveInlineEdit()
+    {
+        editDateError = null;
+
+        if (!TryBuildDate(editYear, editMonth, editDay, editHour, editMinute,
+                          out var localDt, out var err))
+        {
+            editDateError = err;
+            return;
+        }
+
+        var updated = new Game
+        {
+            Id       = editingGameId!.Value,
+            HomeTeam = editHomeTeam.Trim(),
+            AwayTeam = editAwayTeam.Trim(),
+            Stage    = editStage.Trim(),
+            GameDate = localDt
+        };
+
+        await GameService.UpdateGameAsync(updated);
+        editingGameId = null;
+        await LoadData();
+    }
+
+    static bool TryBuildDate(int year, int month, int day, int hour, int minute,
+                              out DateTime result, out string error)
+    {
+        result = default;
+        error  = "";
+
+        if (year   < 2020 || year   > 2099) { error = "Year must be 2020–2099.";   return false; }
+        if (month  < 1    || month  > 12)   { error = "Month must be 1–12.";        return false; }
+        if (day    < 1    || day    > 31)   { error = "Day must be 1–31.";           return false; }
+        if (hour   < 0    || hour   > 23)   { error = "Hour must be 0–23.";          return false; }
+        if (minute < 0    || minute > 59)   { error = "Minute must be 0–59.";        return false; }
+
+        try
+        {
+            result = new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Local);
+            return true;
+        }
+        catch
+        {
+            error = $"{day}/{month}/{year} is not a valid date.";
+            return false;
+        }
+    }
+
+    async Task DeleteGame(int id)
+    {
+        await GameService.DeleteMatchAsync(id);
+        await LoadData();
+    }
+
+    // ── Group batch create ─────────────────────────────────────────────────────
+    void OnTeamCountChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var count))
+        {
+            teamCount = Math.Clamp(count, 2, 20);
+            while (teamNames.Count < teamCount) teamNames.Add("");
+            while (teamNames.Count > teamCount) teamNames.RemoveAt(teamNames.Count - 1);
+        }
+    }
+
+    async Task AddGroup()
+    {
+        groupError = null;
+        if (string.IsNullOrWhiteSpace(groupName)) { groupError = "Group name is required."; return; }
+        var filled = teamNames.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        if (filled.Count < 2) { groupError = "Enter at least 2 team names."; return; }
+        if (filled.Count != filled.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+        {
+            groupError = "Team names must be unique within the group."; return;
+        }
+
+        var group = new TournamentGroup
+        {
+            Name         = groupName.Trim(),
+            Event        = groupEvent.Trim(),
+            TournamentId = tournament!.Id,
+            Teams        = filled.Select(t => new GroupTeam { TeamName = t.Trim() }).ToList()
+        };
+
+        await GameService.AddGroupWithGamesAsync(group);
+        groupMessage = $"Group \"{group.Name}\" created with {filled.Count * (filled.Count - 1) / 2} games!";
+        groupName = "";
+        teamCount = 4;
+        teamNames = new() { "", "", "", "" };
+        await LoadData();
+        await Task.Delay(3000);
+        groupMessage = null;
+    }
+
+    async Task DeleteGroup(int groupId)
+    {
+        editingGroupId = null;
+        await GameService.DeleteGroupAsync(groupId);
+        await LoadData();
+    }
+
+    // ── Group team edit ────────────────────────────────────────────────────────
+    void StartEditGroup(TournamentGroup group)
+    {
+        editingGroupId = group.Id;
+        editTeamNames  = group.Teams.Select(t => t.TeamName).ToList();
+        groupEditError = null;
+    }
+
+    void CancelGroupEdit()
+    {
+        editingGroupId = null;
+        editTeamNames  = new();
+        groupEditError = null;
+    }
+
+    async Task SaveGroupTeams()
+    {
+        groupEditError = null;
+        var filled = editTeamNames.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+        if (filled.Count < 2) { groupEditError = "Need at least 2 teams."; return; }
+        if (filled.Count != filled.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+        {
+            groupEditError = "Team names must be unique."; return;
+        }
+
+        await GameService.UpdateGroupTeamsAsync(editingGroupId!.Value, editTeamNames);
+        CancelGroupEdit();
+        await LoadData();
+    }
+
+    // ── Assignment ─────────────────────────────────────────────────────────────
+    async Task ApplyAssignment(int groupId)
+    {
+        int? tournamentId = null;
+        if (assignSelections.TryGetValue(groupId, out var val) &&
+            int.TryParse(val, out var tid))
+            tournamentId = tid;
+
+        await GameService.AssignGroupToTournamentAsync(groupId, tournamentId);
+        assignMessage = "Assignment saved.";
+        await LoadData();
+        await Task.Delay(2000);
+        assignMessage = null;
+    }
+
+    // ── User Competition Groups ────────────────────────────────────────────────
+
+    async Task CreateUserGroup()
+    {
+        ugError = null;
+        if (string.IsNullOrWhiteSpace(newUGName)) { ugError = "Group name is required."; return; }
+        await GameService.CreateUserGroupAsync(newUGName, tournament!.Id);
+        ugMessage = $"Group \"{newUGName}\" created.";
+        newUGName = "";
+        await LoadData();
+        await Task.Delay(2000);
+        ugMessage = null;
+    }
+
+    async Task DeleteUserGroup(int groupId)
+    {
+        await GameService.DeleteUserGroupAsync(groupId);
+        await LoadData();
+    }
+
+    async Task ToggleUserGroupMember(int groupId, int userId, bool isMember)
+    {
+        await GameService.SetUserGroupMemberAsync(groupId, userId, isMember);
+        if (tournament != null)
+            userGroups = await GameService.GetUserGroupsByTournamentAsync(tournament.Id);
+    }
+
+    // ── Complete Tournament ────────────────────────────────────────────────────
+    async Task CompleteTournament()
+    {
+        completing     = true;
+        completeMessage = null;
+        completeError  = false;
+        try
+        {
+            var h = await GameService.CompleteTournamentHistoryAsync(tournament!.Id);
+            completeMessage = $"Saved to history (#{h.Id}) with {h.Entries.Count} participant(s).";
+        }
+        catch (Exception ex)
+        {
+            completeMessage = $"Error: {ex.Message}";
+            completeError   = true;
+        }
+        finally { completing = false; }
+    }
+}

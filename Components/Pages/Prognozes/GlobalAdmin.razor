@@ -1,0 +1,326 @@
+@page "/globaladmin"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject AuthService AuthService
+@inject UserContextService UserContext
+
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        <h3>⚙️ Global Admin</h3>
+
+        @* ── Create / Edit Tournament ────────────────────────────────────────── *@
+        <hr />
+        <h4>@(editingTournament != null ? "✏️ Edit Tournament" : "🏆 Create Tournament")</h4>
+        <div style="max-width:480px">
+            <div class="mb-2">
+                <label class="form-label mb-1">Slug <span class="text-muted" style="font-size:.8rem">(URL segment, e.g. worldcup2026)</span></label>
+                <input class="form-control" @bind="tSlug" placeholder="worldcup2026" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label mb-1">Name</label>
+                <input class="form-control" @bind="tName" placeholder="FIFA World Cup 2026" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label mb-1">Icon <span class="text-muted" style="font-size:.8rem">(single emoji)</span></label>
+                <input class="form-control" @bind="tIcon" placeholder="⚽" style="max-width:120px" />
+            </div>
+
+            @* ── Points Calculation Type ──────────────────────────────────────── *@
+            <div class="mb-2">
+                <label class="form-label mb-1">Points Calculation</label>
+                <select class="form-select" @bind="tCalcType" style="max-width:240px">
+                    <option value="Football">⚽ Football</option>
+                    <option value="Hockey">🏒 Hockey</option>
+                    <option value="Football2">⚽ Football2</option>
+                    <option value="Hockey2">🏒 Hockey2</option>
+                </select>
+                <div class="text-muted mt-1" style="font-size:.8rem">
+                    @if (tCalcType == "Hockey")
+                    {
+                        <span>Hockey: exact=5, same diff=3, correct winner=2/1, Final×2. Max 10 pts.</span>
+                    }
+                    else if (tCalcType == "Hockey2")
+                    {
+                        <span>Hockey2: exact home/away=+2, off-by-1=+1, correct diff=+1 (skipped if OT correct), correct winner=+1, correct OT=+1. Max 6 pts.</span>
+                    }
+                    else if (tCalcType == "Football2")
+                    {
+                        <span>Football2: Groups — exact home/away=+2, off-by-1=+1, correct diff=+1, correct winner/tie=+1 (max 6). Playoffs — same as Hockey2 with OT checkbox (max 6).</span>
+                    }
+                    else
+                    {
+                        <span>Football: exact=3, same diff=2, correct winner=1, Final×2. Max 6 pts.</span>
+                    }
+                </div>
+            </div>
+
+            <div class="mb-3 form-check">
+                <input class="form-check-input" type="checkbox" @bind="tIsActive" id="tActive" />
+                <label class="form-check-label" for="tActive">Active (visible to users)</label>
+            </div>
+
+            @if (tError != null) { <p class="text-danger">@tError</p> }
+
+            @if (editingTournament != null)
+            {
+                <button class="btn btn-primary me-2" @onclick="SaveTournament">Save Changes</button>
+                <button class="btn btn-secondary" @onclick="CancelTournamentEdit">Cancel</button>
+            }
+            else
+            {
+                <button class="btn btn-success" @onclick="CreateTournament">Create Tournament</button>
+            }
+
+            @if (tMessage != null) { <p class="text-success mt-2">@tMessage</p> }
+        </div>
+
+        @* ── Tournaments Table ────────────────────────────────────────────────── *@
+        <hr />
+        <h4>Existing Tournaments</h4>
+        @if (tournaments == null || !tournaments.Any())
+        {
+            <p>No tournaments yet.</p>
+        }
+        else
+        {
+            <div style="overflow-x:auto">
+            <table class="table table-sm" style="min-width:520px">
+                <thead>
+                    <tr class="table-primary">
+                        <th>Icon</th><th>Name</th><th>Slug</th><th>Calc</th><th>Active</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in tournaments)
+                    {
+                        <tr class="@(editingTournament?.Id == t.Id ? "table-warning" : "table-dark")">
+                            <td>@t.Icon</td>
+                            <td>@t.Name</td>
+                            <td><code>@t.Slug</code></td>
+                            <td><span class="badge bg-secondary">@t.PointsCalculationType</span></td>
+                            <td>@(t.IsActive ? "✅" : "❌")</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary me-1"
+                                        @onclick="() => StartEditTournament(t)">Edit</button>
+                                <a class="btn btn-sm btn-outline-secondary"
+                                   href="@($"/prognozes/{t.Slug}/admin")">⚙ Admin</a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+
+        @* ── Users ────────────────────────────────────────────────────────────── *@
+        <hr />
+        <h4>👥 Users</h4>
+        @if (users == null)
+        {
+            <p>Loading...</p>
+        }
+        else
+        {
+            <div style="overflow-x:auto">
+            <table class="table table-sm" style="min-width:480px">
+                <thead>
+                    <tr class="table-primary">
+                        <th>Username</th><th>Email</th><th>Admin</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var user in users)
+                    {
+                        @if (editingUserId == user.Id)
+                        {
+                            <tr class="table-warning">
+                                <td><input class="form-control form-control-sm" @bind="editUsername" /></td>
+                                <td><input class="form-control form-control-sm" @bind="editEmail" /></td>
+                                <td>@(user.IsAdmin ? "✅" : "")</td>
+                                <td>
+                                    <button class="btn btn-sm btn-primary me-1" @onclick="SaveUserEdit">Save</button>
+                                    <button class="btn btn-sm btn-secondary" @onclick="CancelUserEdit">Cancel</button>
+                                </td>
+                            </tr>
+                            <tr class="table-warning">
+                                <td colspan="4" style="padding-top:0">
+                                    <div class="d-flex align-items-center gap-2 mt-1">
+                                        <input class="form-control form-control-sm" style="max-width:280px"
+                                               @bind="editPassword"
+                                               placeholder="New password (leave blank to keep current)" />
+                                        @if (userMessage != null)
+                                        {
+                                            <span class="text-success" style="font-size:.85rem">@userMessage</span>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            <tr class="table-dark">
+                                <td>@user.Username</td>
+                                <td>@user.Email</td>
+                                <td>@(user.IsAdmin ? "✅" : "")</td>
+                                <td class="d-flex flex-wrap gap-1">
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => StartUserEdit(user)">Edit</button>
+                                    @if (user.Id != currentUserId)
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning"
+                                                @onclick="() => ToggleAdmin(user.Id, user.IsAdmin)">
+                                            @(user.IsAdmin ? "Remove Admin" : "Make Admin")
+                                        </button>
+                                        <button class="btn btn-sm btn-danger"
+                                                @onclick="() => DeleteUser(user.Id)">Delete</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted-dark">(you)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+            </div>
+        }
+    </Authorized>
+    <NotAuthorized>
+        <p class="text-danger">Access denied.</p>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    List<Tournament>? tournaments;
+    List<User>? users;
+    int currentUserId;
+
+    // ── Tournament form ────────────────────────────────────────────────────────
+    Tournament? editingTournament;
+    string tSlug     = "";
+    string tName     = "";
+    string tIcon     = "";
+    string tCalcType = "Football";
+    bool   tIsActive = true;
+    string? tMessage;
+    string? tError;
+
+    // ── User edit state ────────────────────────────────────────────────────────
+    int?    editingUserId;
+    string  editUsername = "";
+    string  editEmail    = "";
+    string  editPassword = "";
+    string? userMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        currentUserId = (await UserContext.GetUserIdAsync()) ?? 0;
+        await LoadData();
+    }
+
+    async Task LoadData()
+    {
+        tournaments = await GameService.GetAllTournamentsAsync();
+        users       = await AuthService.GetAllUsersAsync();
+    }
+
+    // ── Tournament handlers ────────────────────────────────────────────────────
+    void StartEditTournament(Tournament t)
+    {
+        editingTournament = t;
+        tSlug     = t.Slug;
+        tName     = t.Name;
+        tIcon     = t.Icon;
+        tCalcType = t.PointsCalculationType;
+        tIsActive = t.IsActive;
+        tError    = null;
+    }
+
+    void CancelTournamentEdit()
+    {
+        editingTournament = null;
+        tSlug = tName = tIcon = "";
+        tCalcType = "Football";
+        tIsActive = true;
+        tError = null;
+    }
+
+    async Task CreateTournament()
+    {
+        tError = null;
+        if (string.IsNullOrWhiteSpace(tSlug)) { tError = "Slug is required."; return; }
+        if (string.IsNullOrWhiteSpace(tName)) { tError = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(tIcon)) { tError = "Icon is required."; return; }
+
+        var slug = tSlug.Trim().ToLowerInvariant().Replace(" ", "-");
+        var ok = await GameService.CreateTournamentAsync(slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType);
+        if (!ok) { tError = $"Slug \"{slug}\" is already taken."; return; }
+
+        tMessage = $"Tournament \"{tName}\" created!";
+        tSlug = tName = tIcon = "";
+        tCalcType = "Football";
+        tIsActive = true;
+        await LoadData();
+        await Task.Delay(2500);
+        tMessage = null;
+    }
+
+    async Task SaveTournament()
+    {
+        tError = null;
+        if (string.IsNullOrWhiteSpace(tSlug)) { tError = "Slug is required."; return; }
+        if (string.IsNullOrWhiteSpace(tName)) { tError = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(tIcon)) { tError = "Icon is required."; return; }
+
+        var slug = tSlug.Trim().ToLowerInvariant().Replace(" ", "-");
+        await GameService.UpdateTournamentAsync(editingTournament!.Id, slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType);
+        tMessage = "Tournament updated!";
+        CancelTournamentEdit();
+        await LoadData();
+        await Task.Delay(2500);
+        tMessage = null;
+    }
+
+    // ── User handlers ──────────────────────────────────────────────────────────
+    void StartUserEdit(User user)
+    {
+        editingUserId = user.Id;
+        editUsername  = user.Username;
+        editEmail     = user.Email;
+        editPassword  = "";
+        userMessage   = null;
+    }
+
+    void CancelUserEdit()
+    {
+        editingUserId = null;
+        editPassword  = "";
+        userMessage   = null;
+    }
+
+    async Task SaveUserEdit()
+    {
+        await AuthService.UpdateUserAsync(editingUserId!.Value, editUsername.Trim(), editEmail.Trim(), editPassword);
+        userMessage = "Saved!";
+        await LoadData();
+        await Task.Delay(1500);
+        CancelUserEdit();
+    }
+
+    async Task DeleteUser(int id)
+    {
+        await AuthService.DeleteUserAsync(id);
+        await LoadData();
+    }
+
+    async Task ToggleAdmin(int id, bool current)
+    {
+        await AuthService.SetAdminAsync(id, !current);
+        await LoadData();
+    }
+}

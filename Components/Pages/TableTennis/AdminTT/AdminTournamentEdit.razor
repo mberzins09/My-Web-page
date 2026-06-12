@@ -1,0 +1,151 @@
+@page "/lgtf-tt/admin/tournament/{TournamentId:int}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject LgtfAdminService AdminSvc
+@inject NavigationManager Nav
+
+<PageTitle>Edit Tournament</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item"><a href="/lgtf-tt/admin">Admin</a></li>
+        <li class="breadcrumb-item active">Edit Tournament</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading…
+    </div>
+}
+else if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else if (_t != null)
+{
+    <div class="card" style="max-width:560px">
+        <div class="card-header fw-semibold">
+            Edit Tournament
+            <span class="badge bg-secondary ms-2">@_t.GameCount game(s)</span>
+        </div>
+        <div class="card-body">
+
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <input class="form-control" @bind="_name" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Date</label>
+                <input type="date" class="form-control" @bind="_date" />
+            </div>
+
+            <div class="row mb-3">
+                <div class="col">
+                    <label class="form-label">Coefficient</label>
+                    <input type="number" class="form-control" step="0.1" min="0" @bind="_coef" />
+                </div>
+                <div class="col">
+                    <label class="form-label">Places</label>
+                    <input class="form-control" @bind="_places" />
+                </div>
+            </div>
+
+            @if (_savedMsg != null)
+            {
+                <div class="alert alert-success py-2">@_savedMsg</div>
+            }
+            @if (_deleteMsg != null)
+            {
+                <div class="alert alert-info py-2">@_deleteMsg</div>
+            }
+
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-success" @onclick="SaveAsync" disabled="@_busy">
+                    @if (_busy) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                    Save
+                </button>
+                <button class="btn btn-danger" @onclick="DeleteAsync" disabled="@_busy">
+                    Delete tournament
+                </button>
+                <button class="btn btn-outline-secondary ms-auto" @onclick="GoBack">
+                    ← Back
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+
+    private AdminTournamentVm? _t;
+    private bool    _loading = true;
+    private bool    _busy    = false;
+    private string? _error      = null;
+    private string? _savedMsg   = null;
+    private string? _deleteMsg  = null;
+
+    private string   _name   = "";
+    private DateTime _date   = DateTime.Today;
+    private double   _coef   = 1;
+    private string   _places = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _t = await AdminSvc.GetTournamentAsync(TournamentId);
+            if (_t != null)
+            {
+                _name   = _t.Name;
+                _date   = DateTime.TryParse(_t.Date, out var d) ? d : DateTime.Today;
+                _coef   = _t.Coef;
+                _places = _t.Places;
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy     = true;
+        _savedMsg = null;
+        _error    = null;
+        try
+        {
+            await AdminSvc.UpdateTournamentAsync(TournamentId, _name, _date.ToString("yyyy-MM-dd"), _coef, _places);
+            _savedMsg = "✅ Saved successfully.";
+            if (_t != null)
+            {
+                _t.Name = _name; _t.Date = _date.ToString("yyyy-MM-dd");
+                _t.Coef = _coef; _t.Places = _places;
+            }
+        }
+        catch (Exception ex) { _error = $"Save error: {ex.Message}"; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        _busy = true;
+        try
+        {
+            int deleted = await AdminSvc.DeleteTournamentAsync(TournamentId);
+            _deleteMsg = "🗑 Tournament deleted — " + deleted + " game(s) removed.";
+            _t = null;
+            await Task.Delay(1800);
+            Nav.NavigateTo("/lgtf-tt/admin");
+        }
+        catch (Exception ex) { _error = $"Delete error: {ex.Message}"; _busy = false; }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/lgtf-tt/admin");
+}

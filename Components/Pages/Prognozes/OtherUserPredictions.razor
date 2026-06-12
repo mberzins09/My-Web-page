@@ -1,0 +1,385 @@
+@page "/prognozes/{Slug}/userpredictions"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject UserContextService UserContext
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>👥 Other User Predictions — @(tournament?.Name ?? "...")</h3>
+
+<AuthorizeView>
+    <NotAuthorized>
+        <p>Please <a href="/login">login</a> to view other predictions.</p>
+    </NotAuthorized>
+    <Authorized>
+        @if (tournament == null)
+        {
+            <p class="text-danger">Tournament not found.</p>
+        }
+        else if (games == null)
+        {
+            <p>Loading...</p>
+        }
+        else if (!groupMates.Any())
+        {
+            <p class="text-white">
+                You are not assigned to any competition group for this tournament yet.
+                Ask the admin to add you to a group.
+            </p>
+        }
+        else
+        {
+            @* ── Filters ────────────────────────────────────────────────────────── *@
+            <div class="mb-3 d-flex flex-wrap gap-3 align-items-end">
+
+                @* Stage filter *@
+                <div>
+                    <label class="form-label mb-1 small">Stage</label>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-sm @(selectedStage == null ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => selectedStage = null">All</button>
+                        @foreach (var stage in stages)
+                        {
+                            <button class="btn btn-sm @(selectedStage == stage ? "btn-primary" : "btn-outline-primary")"
+                                    @onclick="() => selectedStage = stage">
+                                @stage
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                @* User filter *@
+                <div>
+                    <label class="form-label mb-1 small">Player</label>
+                    <select class="form-select form-select-sm" style="min-width:160px"
+                            value="@selectedUserId"
+                            @onchange="OnUserChanged">
+                        <option value="0">— Select player —</option>
+                        @foreach (var u in groupMates)
+                        {
+                            <option value="@u.Id">@u.Username</option>
+                        }
+                    </select>
+                </div>
+            </div>
+
+            @if (selectedUserId == 0)
+            {
+                <p class="text-white">Select a player above to see their predictions.</p>
+            }
+            else
+            {
+                var selectedUser = groupMates.FirstOrDefault(u => u.Id == selectedUserId);
+                @if (selectedUser == null)
+                {
+                    <p>User not found.</p>
+                }
+                else if (!filteredGames.Any())
+                {
+                    <p>No games in this stage yet.</p>
+                }
+                else
+                {
+                    <p class="text-white" style="font-size:.9rem">
+                        Showing predictions for <strong>@selectedUser.Username</strong>.
+                        Saved predictions are hidden until the game starts.
+                    </p>
+
+                    <div class="tt-grid pred-grid">
+                        @foreach (var game in filteredGames)
+                        {
+                            var pred    = selectedUserPredictions.FirstOrDefault(p => p.GameId == game.Id);
+                            var started = game.GameDate < LatviaTime;
+                            var hasPred = pred != null;
+
+                            int? earnedPoints = null;
+                            if (hasPred && started && game.HomeScore != null && game.AwayScore != null)
+                                earnedPoints = PointsCalculator.Calculate(
+                                    pred!.PredictedHomeScore, pred.PredictedAwayScore, pred.PredictedIsOvertime,
+                                    game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,
+                                    game.Stage,
+                                    tournament.PointsCalculationType);
+
+                            <div class="tt-card pred-card">
+                                <div class="pred-card-top">
+                                    <span class="pred-date">@game.GameDate.ToLocalTime().ToString("MMM dd HH:mm")</span>
+                                    <span class="pred-match">@game.HomeTeam vs @game.AwayTeam</span>
+                                    <span class="pred-stage">@game.Stage</span>
+                                </div>
+                                <div class="pred-card-bottom">
+                                    <span class="pred-input-col">
+                                        @if (!started && !hasPred)
+                                        {
+                                            <span class="text-white fst-italic" style="font-size:.82rem">not predicted yet</span>
+                                        }
+                                        else if (!started && hasPred)
+                                        {
+                                            <span class="text-white fst-italic" style="font-size:.82rem">shows after game starts</span>
+                                        }
+                                        else if (started && !hasPred)
+                                        {
+                                            <span class="text-danger fst-italic" style="font-size:.82rem">forgot to predict</span>
+                                        }
+                                        else
+                                        {
+                                            <strong>@pred!.PredictedHomeScore : @pred.PredictedAwayScore@(pred.PredictedIsOvertime ? " OT" : "")</strong>
+                                        }
+                                    </span>
+                                    <span class="pred-right-col">
+                                        <span class="pred-result">
+                                            @if (game.HomeScore != null)
+                                            {
+                                                <strong>@game.HomeScore:@game.AwayScore@(game.IsOvertime ? " OT" : "")</strong>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-white">TBD</span>
+                                            }
+                                        </span>
+                                        <span class="pred-pts">
+                                            @if (earnedPoints != null)
+                                            {
+                                                <span class="badge @PointsBadgeClass(earnedPoints.Value)">@earnedPoints</span>
+                                            }
+                                            else if (started && !hasPred)
+                                            {
+                                                <span class="badge bg-danger">0</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-white">—</span>
+                                            }
+                                        </span>
+                                    </span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    @* ── Predicted Group Standings (only if a group stage is selected) ── *@
+                    @if (selectedStage != null && selectedStage.Contains("grupa", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Only games that have already started (so predictions are revealed)
+                        var gamesInGroup = (games ?? new())
+                            .Where(g => g.Stage == selectedStage && g.GameDate < LatviaTime)
+                            .ToList();
+                        var teams = GetTeams(gamesInGroup);
+
+                        @if (teams.Any())
+                        {
+                            <h5 class="mt-4">📊 @selectedUser.Username's Predicted Standings — @selectedStage</h5>
+                            <p class="text-white" style="font-size:.8rem">
+                                Based on @selectedUser.Username's predictions for started games only.
+                            </p>
+
+                            var sorted = ComputePredictedStandings(teams, gamesInGroup)
+                                .OrderByDescending(s => s.Points)
+                                .ThenByDescending(s => s.GoalDiff)
+                                .ThenByDescending(s => s.GoalsFor)
+                                .ToList();
+
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-sm group-table mb-0">
+                                    <thead>
+                                        <tr class="table-primary">
+                                            <th class="team-name-col"></th>
+                                            @foreach (var s in sorted)
+                                            {
+                                                <th class="text-center team-col" title="@s.Team">@s.Team</th>
+                                            }
+                                            <th class="text-center stat-col">Pts</th>
+                                            <th class="text-center stat-col">±</th>
+                                            <th class="text-center stat-col">Vieta</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (int i = 0; i < sorted.Count; i++)
+                                        {
+                                            var row   = sorted[i];
+                                            var place = i + 1;
+                                            <tr class="table-dark">
+                                                <td class="team-name-col"><strong>@row.Team</strong></td>
+                                                @foreach (var col in sorted)
+                                                {
+                                                    @if (row.Team == col.Team)
+                                                    {
+                                                        <td class="black-cell"></td>
+                                                    }
+                                                    else
+                                                    {
+                                                        var game = FindGame(gamesInGroup, row.Team, col.Team);
+                                                        var pred = game != null
+                                                            ? selectedUserPredictions.FirstOrDefault(p => p.GameId == game.Id)
+                                                            : null;
+                                                        <td class="text-center score-cell">
+                                                            @if (pred != null && game != null)
+                                                            {
+                                                                int myG  = game.HomeTeam == row.Team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
+                                                                int oppG = game.HomeTeam == row.Team ? pred.PredictedAwayScore : pred.PredictedHomeScore;
+                                                                <span>@myG:@oppG</span>
+                                                            }
+                                                        </td>
+                                                    }
+                                                }
+                                                <td class="text-center stat-col"><strong>@row.Points</strong></td>
+                                                <td class="text-center stat-col @GoalDiffClass(row.GoalDiff)">
+                                                    @(row.GoalDiff > 0 ? "+" : "")@row.GoalDiff
+                                                </td>
+                                                <td class="text-center stat-col"><strong>@place</strong></td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="text-white mt-2" style="font-size:.8rem">
+                                Sorted by: Points → Goal difference → Goals scored
+                            </p>
+                        }
+                        else
+                        {
+                            <p class="text-white mt-3" style="font-size:.85rem">
+                                Group standings will appear once games in this group have started.
+                            </p>
+                        }
+                    }
+                }
+            }
+        }
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    Tournament?      tournament;
+    List<Game>?      games;
+    List<User>       groupMates              = new();
+    List<Prediction> selectedUserPredictions = new();
+    int?             currentUserId;
+    int              selectedUserId = 0;
+    string?          selectedStage;
+
+    DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+
+    List<string> stages => games?
+        .Select(g => g.Stage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .OrderBy(StageOrder)
+        .ToList() ?? new();
+
+    List<Game> filteredGames
+    {
+        get
+        {
+            var today = LatviaTime.Date;
+            var all = games?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
+            var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
+            var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
+            return upcoming.Concat(past).ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        currentUserId = await UserContext.GetUserIdAsync();
+        games = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+
+        if (currentUserId != null)
+        {
+            var allMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
+            groupMates = allMates.Where(u => u.Id != currentUserId.Value).ToList();
+        }
+    }
+
+    async Task OnUserChanged(ChangeEventArgs e)
+    {
+        int.TryParse(e.Value?.ToString(), out var id);
+        selectedUserId = id;
+
+        if (selectedUserId == 0 || tournament == null)
+        {
+            selectedUserPredictions = new();
+            return;
+        }
+        selectedUserPredictions = await GameService.GetUserPredictionsByTournamentAsync(selectedUserId, tournament.Id);
+    }
+
+    int StageOrder(string stage) => stage.ToLower() switch
+    {
+        var s when s.Contains("grupa") => 0,
+        "round of 32"   => 1,
+        "round of 16"   => 2,
+        "quarter-final" => 3,
+        "semi-final"    => 4,
+        "final"         => 5,
+        _               => 99
+    };
+
+    string PointsBadgeClass(int pts)
+    {
+        int max = (tournament?.PointsCalculationType) switch
+        {
+            "Hockey"                => 10,
+            "Hockey2" or "Football2" => 6,
+            _                       => 6
+        };
+        int pct = max > 0 ? pts * 100 / max : 0;
+        return pct switch
+        {
+            100   => "bg-warning text-dark",
+            >= 50 => "bg-success",
+            >= 25 => "bg-info text-dark",
+            > 0   => "bg-secondary",
+            _     => "bg-danger"
+        };
+    }
+
+    // ── Group table helpers ───────────────────────────────────────────────────
+
+    record TeamStanding(string Team, int Points, int GoalDiff, int GoalsFor);
+
+    List<string> GetTeams(List<Game> gamesInGroup) =>
+        gamesInGroup.SelectMany(g => new[] { g.HomeTeam, g.AwayTeam })
+             .Where(t => !string.IsNullOrEmpty(t))
+             .Distinct()
+             .ToList();
+
+    Game? FindGame(List<Game> gamesInGroup, string a, string b) =>
+        gamesInGroup.FirstOrDefault(g =>
+            (g.HomeTeam == a && g.AwayTeam == b) ||
+            (g.HomeTeam == b && g.AwayTeam == a));
+
+    string GoalDiffClass(int diff) => diff switch { > 0 => "text-success", < 0 => "text-danger", _ => "" };
+
+    // Standings based on the selected user's predictions (only started games are passed in)
+    List<TeamStanding> ComputePredictedStandings(List<string> teams, List<Game> gamesInGroup)
+    {
+        bool isHockey = tournament?.PointsCalculationType == "Hockey"
+                     || tournament?.PointsCalculationType == "Hockey2";
+        return teams.Select(team =>
+        {
+            int pts = 0, gf = 0, ga = 0;
+            foreach (var g in gamesInGroup.Where(g => g.HomeTeam == team || g.AwayTeam == team))
+            {
+                var pred = selectedUserPredictions.FirstOrDefault(p => p.GameId == g.Id);
+                if (pred == null) continue;
+                int myG  = g.HomeTeam == team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
+                int oppG = g.HomeTeam == team ? pred.PredictedAwayScore : pred.PredictedHomeScore;
+                gf += myG; ga += oppG;
+                if (isHockey)
+                    pts += myG > oppG ? (pred.PredictedIsOvertime ? 2 : 3)
+                         : myG < oppG ? (pred.PredictedIsOvertime ? 1 : 0)
+                         : 1; // draw shouldn't happen in hockey but safe fallback
+                else
+                    pts += myG > oppG ? 3 : myG == oppG ? 1 : 0;
+            }
+            return new TeamStanding(team, pts, gf - ga, gf);
+        }).ToList();
+    }
+}

@@ -1,0 +1,165 @@
+@page "/lgtf-tt/admin"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject LgtfAdminService AdminSvc
+@inject NavigationManager Nav
+
+<PageTitle>Admin — Tournaments</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item active">Admin</li>
+    </ol>
+</nav>
+
+<h4>🛠 Tournament Admin</h4>
+
+<div class="d-flex align-items-end gap-3 mb-4 flex-wrap">
+    <div>
+        <label class="form-label mb-1">Year</label>
+        <select class="form-select" style="width:110px"
+                value="@_year" @onchange="OnYearChanged">
+            <option value="0">— year —</option>
+            @for (int y = DateTime.Today.Year; y >= 2013; y--)
+            {
+                <option value="@y">@y</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label mb-1">Month</label>
+        <select class="form-select" style="width:145px"
+                value="@_month" @onchange="OnMonthChanged"
+                disabled="@(_year == 0)">
+            <option value="0">— month —</option>
+            @foreach (var m in _months)
+            {
+                <option value="@m.Num">@m.Name</option>
+            }
+        </select>
+    </div>
+    @if (_loading)
+    {
+        <div class="align-self-center">
+            <span class="spinner-border spinner-border-sm text-primary"></span>
+        </div>
+    }
+</div>
+
+@if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (_tournaments != null)
+{
+    @if (_tournaments.Count == 0)
+    {
+        <p class="text-muted">No tournaments found.</p>
+    }
+    else
+    {
+        <p class="text-muted mb-2">@_tournaments.Count tournament(s)</p>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th>
+                        <th>Tournament</th>
+                        <th class="text-center">Coef</th>
+                        <th class="text-center">Games</th>
+                        <th style="width:130px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in _tournaments)
+                    {
+                        var tournament = t;
+                        <tr>
+                            <td class="text-nowrap">@tournament.Date</td>
+                            <td>
+                                @tournament.Name
+                                @if (!string.IsNullOrEmpty(tournament.EventType) && tournament.EventType != "singles")
+                                {
+                                    <span class="badge bg-warning text-dark ms-1 small">@tournament.EventType</span>
+                                }
+                            </td>
+                            <td class="text-center">×@tournament.Coef.ToString("0.##")</td>
+                            <td class="text-center">@tournament.GameCount</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary me-1"
+                                        @onclick="() => GoToGames(tournament.Id)">
+                                    Games
+                                </button>
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick="() => GoToEdit(tournament.Id)">
+                                    Edit
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private int  _year  = 0;
+    private int  _month = 0;
+    private bool _loading = false;
+    private string? _error = null;
+    private List<AdminTournamentVm>? _tournaments = null;
+
+    private record MonthItem(int Num, string Name);
+    private static readonly List<MonthItem> _months = new()
+    {
+        new(1,"January"),   new(2,"February"), new(3,"March"),
+        new(4,"April"),     new(5,"May"),       new(6,"June"),
+        new(7,"July"),      new(8,"August"),    new(9,"September"),
+        new(10,"October"),  new(11,"November"), new(12,"December"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _year  = DateTime.Today.Year;
+        _month = DateTime.Today.Month;
+        await LoadAsync();
+    }
+
+    private async Task OnYearChanged(ChangeEventArgs e)
+    {
+        _year        = int.TryParse(e.Value?.ToString(), out var y) ? y : 0;
+        _month       = 0;
+        _tournaments = null;
+    }
+
+    private async Task OnMonthChanged(ChangeEventArgs e)
+    {
+        _month = int.TryParse(e.Value?.ToString(), out var m) ? m : 0;
+        if (_year > 0 && _month > 0)
+            await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_year == 0 || _month == 0) return;
+        _loading     = true;
+        _error       = null;
+        _tournaments = null;
+        StateHasChanged();
+        try
+        {
+            _tournaments = await AdminSvc.GetTournamentsByYearMonthAsync(_year, _month);
+        }
+        catch (Exception ex) { _error = $"Error: {ex.Message}"; }
+        finally { _loading = false; }
+    }
+
+    private void GoToGames(int id) => Nav.NavigateTo("/lgtf-tt/admin/tournament/" + id + "/games");
+    private void GoToEdit(int id)  => Nav.NavigateTo("/lgtf-tt/admin/tournament/" + id);
+}

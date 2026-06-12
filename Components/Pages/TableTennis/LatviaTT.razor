@@ -1,0 +1,327 @@
+@page "/lgtf-tt"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject LgtfDataService Lgtf
+@inject LgtfImportService Importer
+@inject LgtfRankingService Ranking
+@inject NavigationManager Nav
+
+<h3>🏓 Latvia Table Tennis</h3>
+
+<div class="d-flex flex-wrap gap-4 mb-3" style="font-size:.82rem;color:#666">
+    <span>
+        🏓 <strong>Singles</strong> updated till:
+        <strong class="text-body">@(singlesUpdated?.ToString("dd MMM yyyy") ?? "—")</strong>
+    </span>
+    <span>
+        👥 <strong>Team games</strong> updated till:
+        <strong class="text-body">@(teamsUpdated?.ToString("dd MMM yyyy") ?? "—")</strong>
+    </span>
+</div>
+
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        <div class="border rounded p-3 mb-3" style="background:rgba(255,193,7,.06)">
+            <div class="mb-2 d-flex align-items-center gap-3">
+                <span class="fw-semibold" style="font-size:.9rem">Import mode:</span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" role="switch"
+                           id="seasonToggle"
+                           checked="@importSeasonMode"
+                           @onchange="e => importSeasonMode = (bool)(e.Value ?? false)"
+                           disabled="@Importer.IsRunning" />
+                    <label class="form-check-label" for="seasonToggle">
+                        @if (importSeasonMode)
+                        { <span class="text-warning fw-bold">Team Season Events</span> }
+                        else
+                        { <span>Singles &amp; Non-Season Teams</span> }
+                    </label>
+                </div>
+            </div>
+
+            @if (importSeasonMode)
+            {
+                <div class="mb-2 d-flex align-items-center gap-2">
+                    <label class="form-label mb-0" style="white-space:nowrap;font-size:.85rem">From date:</label>
+                    <input type="date" class="form-control form-control-sm" style="max-width:160px"
+                           value="@seasonFromDate.ToString("yyyy-MM-dd")"
+                           @onchange="OnSeasonDateChange"
+                           disabled="@Importer.IsRunning" />
+                </div>
+            }
+
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-warning btn-sm" @onclick="RunImport" disabled="@Importer.IsRunning">
+                    @if (Importer.IsRunning) { <span>⏳ Importing...</span> }
+                    else if (importSeasonMode) { <span>⬇️ Import Season Teams</span> }
+                    else { <span>⬇️ Import Singles &amp; Teams</span> }
+                </button>
+                @if (adminLog.Count > 0)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ClearLog">Clear log</button>
+                }
+            </div>
+
+            @if (adminLog.Count > 0)
+            {
+                <div class="border rounded p-2 mt-2"
+                     style="max-height:220px;overflow-y:auto;font-size:.78rem;font-family:monospace;background:rgba(0,0,0,.05)">
+                    @foreach (var line in adminLog) { <div>@line</div> }
+                </div>
+            }
+        </div>
+
+        @* ── Recalculate Month ──────────────────────────────────────────── *@
+        <div class="border rounded p-3 mb-3" style="background:rgba(13,110,253,.06)">
+            <div class="mb-2 fw-semibold" style="font-size:.9rem">📊 Recalculate PlayerDB Rankings</div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <select class="form-select form-select-sm" style="max-width:110px" @bind="recalcYear">
+                    @for (int y = DateTime.Today.Year; y >= DateTime.Today.Year - 3; y--)
+                    {
+                        <option value="@y">@y</option>
+                    }
+                </select>
+                <select class="form-select form-select-sm" style="max-width:130px" @bind="recalcMonth">
+                    @for (int m = 1; m <= 12; m++)
+                    {
+                        <option value="@m">@System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(m)</option>
+                    }
+                </select>
+                <button class="btn btn-primary btn-sm"
+                        @onclick="RunRecalculateMonth"
+                        disabled="@Ranking.IsRecalculating">
+                    @(Ranking.IsRecalculating ? "⏳ Recalculating…" : "🔄 Recalculate Month")
+                </button>
+                @if (recalcLog.Count > 0)
+                {
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="ClearRecalcLog">Clear</button>
+                }
+            </div>
+            @if (recalcLog.Count > 0)
+            {
+                <div class="border rounded p-2"
+                     style="max-height:220px;overflow-y:auto;font-size:.78rem;font-family:monospace;background:rgba(0,0,0,.05)">
+                    @foreach (var line in recalcLog) { <div>@line</div> }
+                </div>
+            }
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+<div class="mb-3" style="max-width:400px; position:relative">
+    <label class="form-label">Search player</label>
+    <input class="form-control" placeholder="Name or surname..."
+           @bind="searchQuery" @bind:event="oninput"
+           @onkeyup="OnSearchKey" />
+
+    @if (searchResults.Count > 0)
+    {
+        <div class="list-group shadow" style="position:absolute;z-index:100;width:100%">
+            @foreach (var p in searchResults)
+            {
+                var player = p;
+                <button type="button" class="list-group-item list-group-item-action"
+                        @onclick="() => SelectPlayer(player)">
+                    @player.FullName
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (selectedPlayer != null)
+{
+    <h5 class="mt-2">
+        📋 Tournaments — <strong>@selectedPlayer.FullName</strong>
+        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="ClearPlayer">✕</button>
+    </h5>
+
+    <div class="mb-2 d-flex flex-wrap gap-1">
+        <button class="btn btn-sm @(selectedYear == null ? "btn-primary" : "btn-outline-primary")"
+                @onclick="SelectAllYears">All</button>
+        @foreach (var yr in availableYears)
+        {
+            var y = yr;
+            <button class="btn btn-sm @(selectedYear == y ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => SelectYear(y)">@y</button>
+        }
+    </div>
+
+    @if (tournaments == null)
+    {
+        <p>Loading...</p>
+    }
+    else if (tournaments.Count == 0)
+    {
+        <p class="text-muted">No tournaments found.</p>
+    }
+    else
+    {
+        int ratingTotal = tournaments.Sum(t => t.RatingDiffTotal);
+        <div class="mb-3" style="font-size:.85rem">
+            Rating total (@tournaments.Count tournaments):
+            <strong class="@RatingClass(ratingTotal)">@RatingStr(ratingTotal)</strong>
+        </div>
+
+        <div class="tt-grid">
+            @foreach (var t in tournaments)
+            {
+                var tournament = t;
+                <div class="tt-card" @onclick="() => GoToTournament(tournament.Id)">
+                    <div class="tt-card-top">
+                        <span class="tt-name" title="@tournament.Name">@Truncate(tournament.Name)</span>
+                        <span class="tt-date">@tournament.Date.ToString("dd MMM yyyy")</span>
+                    </div>
+                    <div class="tt-card-bottom">
+                        <span class="tt-coef">Coef: <strong>@tournament.Coef</strong></span>
+                        <span class="tt-gwl">
+                            <span class="tt-stat-box">G: @tournament.GamesCount</span>
+                            <span class="tt-stat-box tt-wins">W: @tournament.Wins</span>
+                            <span class="tt-stat-box tt-losses">L: @tournament.Losses</span>
+                        </span>
+                        <span class="tt-rating fw-semibold @RatingClass(tournament.RatingDiffTotal)">
+                            @RatingStr(tournament.RatingDiffTotal)
+                        </span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <p class="text-muted mt-2" style="font-size:.8rem">
+            @tournaments.Count tournament(s) — click a card to see games
+        </p>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "pid")]  public int? PidParam  { get; set; }
+    [SupplyParameterFromQuery(Name = "year")] public int? YearParam { get; set; }
+
+    string         searchQuery   = "";
+    List<TtPlayer> searchResults = [];
+    TtPlayer?      selectedPlayer;
+    List<int>      availableYears = [];
+    int?           selectedYear;
+    List<TtCompetition>? tournaments;
+    List<string>   adminLog = [];
+    List<string>   recalcLog = [];
+    int            recalcYear  = DateTime.Today.Year;
+    int            recalcMonth = DateTime.Today.Month;
+    DateTime?      singlesUpdated;
+    DateTime?      teamsUpdated;
+    bool           importSeasonMode = false;
+    DateTime       seasonFromDate   = DateTime.Today.AddMonths(-6);
+
+    protected override async Task OnInitializedAsync()
+    {
+        (singlesUpdated, teamsUpdated) = await Importer.GetImportDatesAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (PidParam.HasValue && PidParam > 0 &&
+            (selectedPlayer == null || selectedPlayer.Id != PidParam.Value))
+        {
+            var p = await Lgtf.GetPlayerAsync(PidParam.Value);
+            if (p != null)
+            {
+                selectedPlayer = p;
+                searchQuery    = p.FullName;
+                searchResults.Clear();
+                availableYears = await Lgtf.GetYearsForPlayerAsync(p.Id);
+            }
+        }
+
+        if (selectedPlayer != null)
+        {
+            selectedYear = YearParam.HasValue && YearParam > 0 ? YearParam : null;
+            await LoadTournaments();
+        }
+    }
+
+    private async Task OnSearchKey()
+    {
+        if (searchQuery.Length < 2) { searchResults.Clear(); return; }
+        searchResults = await Lgtf.SearchPlayersAsync(searchQuery);
+    }
+
+    private async Task SelectPlayer(TtPlayer p)
+    {
+        selectedPlayer = p;
+        searchQuery    = p.FullName;
+        searchResults.Clear();
+        selectedYear   = null;
+        availableYears = await Lgtf.GetYearsForPlayerAsync(p.Id);
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt?pid=" + p.Id, replace: true);
+    }
+
+    private void ClearPlayer()
+    {
+        selectedPlayer = null; searchQuery = "";
+        tournaments = null; availableYears.Clear(); selectedYear = null;
+        Nav.NavigateTo("/lgtf-tt", replace: true);
+    }
+
+    private async Task SelectAllYears()
+    {
+        selectedYear = null;
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt?pid=" + selectedPlayer!.Id, replace: true);
+    }
+
+    private async Task SelectYear(int year)
+    {
+        selectedYear = year;
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt?pid=" + selectedPlayer!.Id + "&year=" + year, replace: true);
+    }
+
+    private async Task LoadTournaments()
+    {
+        if (selectedPlayer == null) return;
+        tournaments = null;
+        StateHasChanged();
+        tournaments = await Lgtf.GetTournamentsForPlayerAsync(selectedPlayer.Id, selectedYear);
+    }
+
+    private void GoToTournament(int competitionId)
+    {
+        if (selectedPlayer == null) return;
+        Nav.NavigateTo("/lgtf-tt/" + selectedPlayer.Id + "/" + competitionId);
+    }
+
+    private void OnSeasonDateChange(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var d)) seasonFromDate = d;
+    }
+
+    private async Task RunImport()
+    {
+        adminLog.Clear();
+        if (importSeasonMode) await Importer.ImportSeasonTeamsAsync(seasonFromDate, Log);
+        else                  await Importer.ImportSinglesAndTeamsAsync(Log);
+        (singlesUpdated, teamsUpdated) = await Importer.GetImportDatesAsync();
+    }
+
+    private void ClearLog() => adminLog.Clear();
+    private void ClearRecalcLog() => recalcLog.Clear();
+
+    private async Task RunRecalculateMonth()
+    {
+        recalcLog.Clear();
+        await Ranking.RecalculateMonthAsync(recalcYear, recalcMonth, msg =>
+        {
+            recalcLog.Add(msg);
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private void Log(string msg) { adminLog.Add(msg); InvokeAsync(StateHasChanged); }
+
+    private static string Truncate(string s, int max = 70) => s.Length <= max ? s : s[..max] + "…";
+    private static string RatingClass(int v) => v > 0 ? "text-success" : v < 0 ? "text-danger" : "text-white";
+    private static string RatingStr(int v)   => v > 0 ? "+" + v : v.ToString();
+}

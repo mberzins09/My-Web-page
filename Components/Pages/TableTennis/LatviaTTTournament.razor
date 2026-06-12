@@ -1,0 +1,105 @@
+@page "/lgtf-tt/{PlayerId:int}/{CompetitionId:int}"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject LgtfDataService Lgtf
+@inject NavigationManager Nav
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item active">@(competition?.Name ?? "Tournament")</li>
+    </ol>
+</nav>
+
+@if (player != null && competition != null)
+{
+    <div class="mb-3">
+        <h4>@competition.Name</h4>
+        <p class="text-muted mb-1">
+            📅 @competition.Date.ToString("dd MMMM yyyy")
+            @if (!string.IsNullOrEmpty(competition.Places)) { <span> &bull; 📍 @competition.Places</span> }
+            <span> &bull; Coef: <strong>@competition.Coef</strong></span>
+        </p>
+        <p class="mb-0">Player: <strong>@player.FullName</strong></p>
+    </div>
+}
+
+@if (games == null)
+{
+    <p>Loading...</p>
+}
+else if (games.Count == 0)
+{
+    <p class="text-muted">No games found.</p>
+}
+else
+{
+    int ratingTotal = games.Sum(g => g.MyRatingDiff);
+    bool hasRating  = games.Any(g => g.Me.Points > 0);
+
+    @if (hasRating)
+    {
+        <div class="mb-3" style="font-size:.9rem">
+            Tournament rating change:
+            <strong class="@RatingClass(ratingTotal) fs-6">@RatingStr(ratingTotal)</strong>
+        </div>
+    }
+
+    <div class="tt-grid">
+        @foreach (var g in games)
+        {
+            var game = g;
+            <div class="tt-card" @onclick="() => GoToGame(game.Id)">
+                    <div class="tt-card-top">
+                        <span class="tt-name text-center w-100">@game.Opponent.FullName</span>
+                    </div>
+                    <div class="tt-card-bottom">
+                        <span>
+                            @if (game.Me.IsWinner) { <span class="badge bg-success">W</span> }
+                            else                   { <span class="badge bg-danger">L</span>  }
+                        </span>
+                        <span class="tt-score">
+                            <strong>@game.Me.Sets : @game.Opponent.Sets</strong>
+                        </span>
+                        @if (hasRating)
+                        {
+                            <span class="fw-semibold @RatingClass(game.MyRatingDiff)">
+                                @if (game.Me.Points > 0)
+                                { @RatingStr(game.MyRatingDiff) }
+                                else
+                                { <span class="text-white">0</span> }
+                            </span>
+                        }
+                    </div>
+                </div>
+        }
+    </div>
+
+    <div class="d-flex gap-3 mt-3 flex-wrap" style="font-size:.9rem">
+        <span class="text-success">✅ Wins: @games.Count(g => g.Me.IsWinner)</span>
+        <span class="text-danger">❌ Losses: @games.Count(g => !g.Me.IsWinner)</span>
+        <span>Total: @games.Count</span>
+    </div>
+}
+
+@code {
+    [Parameter] public int PlayerId      { get; set; }
+    [Parameter] public int CompetitionId { get; set; }
+
+    TtPlayer?      player;
+    TtCompetition? competition;
+    List<TtGame>?  games;
+
+    protected override async Task OnInitializedAsync()
+    {
+        player      = await Lgtf.GetPlayerAsync(PlayerId);
+        competition = await Lgtf.GetCompetitionAsync(CompetitionId);
+        games       = await Lgtf.GetGamesForPlayerInTournamentAsync(PlayerId, CompetitionId);
+    }
+
+    private void GoToGame(int gameId) => Nav.NavigateTo("/lgtf-tt/" + PlayerId + "/" + CompetitionId + "/" + gameId);
+
+    private static string RatingClass(int v) => v > 0 ? "text-success" : v < 0 ? "text-danger" : "text-white";
+    private static string RatingStr(int v)   => v > 0 ? "+" + v : v.ToString();
+}

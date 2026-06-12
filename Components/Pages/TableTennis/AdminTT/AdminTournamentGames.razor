@@ -1,0 +1,104 @@
+@page "/lgtf-tt/admin/tournament/{TournamentId:int}/games"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject LgtfAdminService AdminSvc
+@inject NavigationManager Nav
+
+<PageTitle>Tournament Games</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item"><a href="/lgtf-tt/admin">Admin</a></li>
+        <li class="breadcrumb-item active">Games</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <div class="d-flex align-items-center gap-2 text-muted">
+        <span class="spinner-border spinner-border-sm"></span> Loading…
+    </div>
+}
+else if (_error != null)
+{
+    <div class="alert alert-danger">@_error</div>
+}
+else
+{
+    @if (_tournament != null)
+    {
+        <h5 class="mb-0">@_tournament.Name</h5>
+        <p class="text-muted mb-3" style="font-size:.85rem">
+            📅 @_tournament.Date
+            @if (!string.IsNullOrEmpty(_tournament.Places))
+            {
+                <span> · 📍 @_tournament.Places</span>
+            }
+            <span> · Coef: @_tournament.Coef.ToString("0.##")</span>
+        </p>
+    }
+
+    @if (_games.Count == 0)
+    {
+        <p class="text-muted">No games in this tournament.</p>
+    }
+    else
+    {
+        <p class="text-muted mb-2">@_games.Count game(s)</p>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Player 1</th>
+                        <th class="text-center" style="width:100px">Score</th>
+                        <th>Player 2</th>
+                        <th style="width:70px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var g in _games)
+                    {
+                        var game = g;
+                        <tr>
+                            <td class="@(game.S1 > game.S2 ? "fw-semibold" : "text-muted")">@game.P1Name</td>
+                            <td class="text-center">@game.S1 : @game.S2</td>
+                            <td class="@(game.S2 > game.S1 ? "fw-semibold" : "text-muted")">@game.P2Name</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick="() => GoToGame(game.Id)">
+                                    Edit
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+
+    private AdminTournamentVm? _tournament;
+    private List<AdminGameVm>  _games   = new();
+    private bool    _loading = true;
+    private string? _error   = null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tournament = await AdminSvc.GetTournamentAsync(TournamentId);
+            _games      = await AdminSvc.GetGamesForTournamentAsync(TournamentId);
+        }
+        catch (Exception ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private void GoToGame(int gameId) => Nav.NavigateTo("/lgtf-tt/admin/game/" + gameId);
+}

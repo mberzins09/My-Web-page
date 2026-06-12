@@ -1,0 +1,165 @@
+@page "/prognozes/{Slug}/groups"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@inject GameService GameService
+
+<h3>🗂️ Groups — @(tournament?.Name ?? "...")</h3>
+
+@if (tournament == null)
+{
+    <p class="text-danger">Tournament not found.</p>
+}
+else if (allGames == null)
+{
+    <p>Loading...</p>
+}
+else if (!groupStages.Any())
+{
+    <p>No group stages added yet. Add groups in the Admin panel.</p>
+}
+else
+{
+    <div class="mb-3 d-flex flex-wrap gap-2">
+        @foreach (var stage in groupStages)
+        {
+            <button class="btn btn-sm @(selectedStage == stage ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => selectedStage = stage">
+                @stage
+            </button>
+        }
+    </div>
+
+    var gamesInGroup = allGames.Where(g => g.Stage == selectedStage).ToList();
+    var teams = GetTeams(gamesInGroup);
+
+    @if (!teams.Any())
+    {
+        <p>No games found for this group.</p>
+    }
+    else
+    {
+        var sorted = ComputeStandings(teams, gamesInGroup)
+                .OrderByDescending(s => s.Points)
+                .ThenByDescending(s => s.GoalDiff)
+                .ThenByDescending(s => s.GoalsFor)
+                .ToList();
+
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm group-table mb-0">
+                <thead>
+                    <tr class="table-primary">
+                        <th class="team-name-col"></th>
+                        @foreach (var s in sorted)
+                        {
+                            <th class="text-center team-col" title="@s.Team">@s.Team</th>
+                        }
+                        <th class="text-center stat-col">Pts</th>
+                        <th class="text-center stat-col">±</th>
+                        <th class="text-center stat-col">Vieta</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = 0; i < sorted.Count; i++)
+                    {
+                        var row   = sorted[i];
+                        var place = i + 1;
+                        <tr class="table-dark">
+                            <td class="team-name-col"><strong>@row.Team</strong></td>
+                            @foreach (var col in sorted)
+                            {
+                                @if (row.Team == col.Team)
+                                {
+                                    <td class="black-cell"></td>
+                                }
+                                else
+                                {
+                                    var game = FindGame(gamesInGroup, row.Team, col.Team);
+                                    <td class="text-center score-cell">
+                                        @if (game?.HomeScore != null)
+                                        {
+                                            int myG  = game.HomeTeam == row.Team ? game.HomeScore.Value : game.AwayScore!.Value;
+                                            int oppG = game.HomeTeam == row.Team ? game.AwayScore!.Value : game.HomeScore.Value;
+                                            <span>@myG:@oppG</span>
+                                        }
+                                    </td>
+                                }
+                            }
+                            <td class="text-center stat-col"><strong>@row.Points</strong></td>
+                            <td class="text-center stat-col @GoalDiffClass(row.GoalDiff)">
+                                @(row.GoalDiff > 0 ? "+" : "")@row.GoalDiff
+                            </td>
+                            <td class="text-center stat-col"><strong>@place</strong></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <p class="text-muted mt-2" style="font-size:.8rem">
+            Sorted by: Points → Goal difference → Goals scored
+        </p>
+    }
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    Tournament?  tournament;
+    List<Game>?  allGames;
+    string?      selectedStage;
+
+    List<string> groupStages => allGames?
+        .Select(g => g.Stage)
+        .Where(s => !string.IsNullOrEmpty(s) && s.Contains("grupa", StringComparison.OrdinalIgnoreCase))
+        .Distinct()
+        .OrderBy(s => s)
+        .ToList() ?? new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        allGames      = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+        selectedStage = groupStages.FirstOrDefault();
+    }
+
+    List<string> GetTeams(List<Game> games) =>
+        games.SelectMany(g => new[] { g.HomeTeam, g.AwayTeam })
+             .Where(t => !string.IsNullOrEmpty(t))
+             .Distinct()
+             .ToList();
+
+    Game? FindGame(List<Game> games, string a, string b) =>
+        games.FirstOrDefault(g =>
+            (g.HomeTeam == a && g.AwayTeam == b) ||
+            (g.HomeTeam == b && g.AwayTeam == a));
+
+    string GoalDiffClass(int diff) => diff switch { > 0 => "text-success", < 0 => "text-danger", _ => "" };
+
+    record TeamStanding(string Team, int Points, int GoalDiff, int GoalsFor);
+
+    List<TeamStanding> ComputeStandings(List<string> teams, List<Game> games)
+    {
+        bool isHockey = tournament?.PointsCalculationType == "Hockey";
+        return teams.Select(team =>
+        {
+            int pts = 0, gf = 0, ga = 0;
+            foreach (var g in games.Where(g =>
+                g.HomeScore != null &&
+                (g.HomeTeam == team || g.AwayTeam == team)))
+            {
+                int myG  = g.HomeTeam == team ? g.HomeScore!.Value : g.AwayScore!.Value;
+                int oppG = g.HomeTeam == team ? g.AwayScore!.Value : g.HomeScore!.Value;
+                gf += myG; ga += oppG;
+                if (isHockey)
+                    pts += myG > oppG ? (g.IsOvertime ? 2 : 3)
+                         : myG < oppG ? (g.IsOvertime ? 1 : 0)
+                         : 1;
+                else
+                    pts += myG > oppG ? 3 : myG == oppG ? 1 : 0;
+            }
+            return new TeamStanding(team, pts, gf - ga, gf);
+        }).ToList();
+    }
+}

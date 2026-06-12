@@ -1,0 +1,113 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using MartinsWeb.Services
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject GameService GameService
+@implements IDisposable
+@rendermode InteractiveServer
+
+<nav class="topnav navbar navbar-dark bg-dark px-3 px-md-4 d-flex justify-content-between align-items-center flex-nowrap">
+    @if (showCompetitionNav && currentSlug != null)
+    {
+        <div class="competition-links d-flex gap-2 gap-md-3 align-items-center overflow-auto">
+            <span class="navbar-text text-warning fw-bold me-1 flex-shrink-0 d-none d-sm-inline">@tournamentIcon</span>
+            <a href="/prognozes/@currentSlug/leaderboard"       class="nav-link text-light flex-shrink-0">🏆 <span class="d-none d-sm-inline">Leaderboard</span></a>
+            <a href="/prognozes/@currentSlug/mypredictions"     class="nav-link text-light flex-shrink-0">📋 <span class="d-none d-sm-inline">My Predictions</span></a>
+            <a href="/prognozes/@currentSlug/userpredictions"   class="nav-link text-light flex-shrink-0">👥 <span class="d-none d-sm-inline">Others</span></a>
+            <a href="/prognozes/@currentSlug/scores"            class="nav-link text-light flex-shrink-0">⚽ <span class="d-none d-sm-inline">Scores</span></a>
+            <a href="/prognozes/@currentSlug/groups"            class="nav-link text-light flex-shrink-0">🗂️ <span class="d-none d-sm-inline">Groups</span></a>
+            @if (isAdmin)
+            {
+                <a href="/prognozes/@currentSlug/admin"         class="nav-link text-warning flex-shrink-0">⚙️ <span class="d-none d-sm-inline">Admin</span></a>
+            }
+        </div>
+    }
+    else
+    {
+        <div></div>
+    }
+
+    <div class="d-flex gap-2 align-items-center flex-shrink-0 ms-2">
+        @if (isLoggedIn)
+        {
+            <span class="navbar-text text-light me-1 d-none d-sm-inline">👤 @username</span>
+            <button class="btn btn-sm btn-outline-light" @onclick="Logout">Logout</button>
+        }
+        else
+        {
+            <a href="/register" class="btn btn-sm btn-outline-light d-none d-sm-inline-block">Register</a>
+            <a href="/login"    class="btn btn-sm btn-light">Login</a>
+        }
+    </div>
+</nav>
+
+@code {
+    bool    showCompetitionNav = false;
+    bool    isLoggedIn         = false;
+    bool    isAdmin            = false;
+    string  username           = "";
+    string? currentSlug;
+    string  tournamentIcon     = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        UpdateFromAuthState(state);
+
+        AuthStateProvider.AuthenticationStateChanged += OnAuthStateChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        await UpdateNavVisibility(Nav.Uri);
+    }
+
+    void UpdateFromAuthState(AuthenticationState state)
+    {
+        var user   = state.User;
+        isLoggedIn = user.Identity?.IsAuthenticated == true;
+        username   = user.Identity?.Name ?? "";
+        isAdmin    = user.IsInRole("Admin");
+    }
+
+    async void OnAuthStateChanged(Task<AuthenticationState> task)
+    {
+        var state = await task;
+        UpdateFromAuthState(state);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async void OnLocationChanged(object? sender,
+        Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        await UpdateNavVisibility(e.Location);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async Task UpdateNavVisibility(string uri)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(uri, @"/prognozes/([^/?#]+)");
+        showCompetitionNav = match.Success;
+        currentSlug        = match.Success ? match.Groups[1].Value : null;
+
+        if (currentSlug != null)
+        {
+            var tournament = await GameService.GetTournamentBySlugAsync(currentSlug);
+            tournamentIcon = tournament != null ? $"{tournament.Icon} {tournament.Name}" : "";
+        }
+        else
+        {
+            tournamentIcon = "";
+        }
+    }
+
+    async Task Logout()
+    {
+        await JS.InvokeVoidAsync("logoutUser");
+        Nav.NavigateTo("/", forceLoad: true);
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

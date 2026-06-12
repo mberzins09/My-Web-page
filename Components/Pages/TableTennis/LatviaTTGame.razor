@@ -1,0 +1,122 @@
+@page "/lgtf-tt/{PlayerId:int}/{CompetitionId:int}/{GameId:int}"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject LgtfDataService Lgtf
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/lgtf-tt">🏓 Latvia TT</a></li>
+        <li class="breadcrumb-item">
+            <a href="/lgtf-tt/@PlayerId/@CompetitionId">@(competition?.Name ?? "Tournament")</a>
+        </li>
+        <li class="breadcrumb-item active">Game</li>
+    </ol>
+</nav>
+
+@if (game == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="card lgtf-card mt-2" style="max-width:680px">
+        <div class="card-body">
+
+            <div class="text-center mb-3">
+                <span class="fs-1 fw-bold">@game.Me.Sets</span>
+                <span class="fs-3 mx-2 text-white-50">:</span>
+                <span class="fs-1 fw-bold">@game.Opponent.Sets</span>
+                <div class="mt-1">
+                    @if (game.Me.IsWinner)
+                    { <span class="badge bg-success fs-6 px-3">Victory</span> }
+                    else
+                    { <span class="badge bg-danger fs-6 px-3">Defeat</span> }
+                </div>
+            </div>
+
+            <hr style="border-color:rgba(255,255,255,.2)" />
+
+            <div class="row g-3">
+
+                @* Me *@
+                <div class="col-6">
+                    <div class="@CardClass(game.Me.IsWinner)">
+                        <p class="mb-1 text-white-50 small text-uppercase fw-bold">You</p>
+                        <p class="fs-6 fw-bold mb-2">@game.Me.FullName</p>
+                        @StatRow("Sets",        game.Me.Sets.ToString(), true)
+                        @if (game.Me.Points > 0)
+                        {
+                            @StatRowColoured("Rating ±", game.MyRatingDiff)
+                        }
+                        @StatRow("Place",       game.Me.Place > 0  ? "#" + game.Me.Place         : "—", false)
+                        @StatRow("Points",      game.Me.Points > 0 ? game.Me.Points.ToString()   : "—", false)
+                        @StatRow("Pts + Bonus", game.Me.Points > 0 ? game.Me.PointsWithBonus.ToString() : "—", false)
+                        @StatRow("Age",         game.Me.Age > 0    ? game.Me.Age.ToString()      : "—", false)
+                    </div>
+                </div>
+
+                @* Opponent *@
+                <div class="col-6">
+                    <div class="@CardClass(game.Opponent.IsWinner)">
+                        <p class="mb-1 text-white-50 small text-uppercase fw-bold">Opponent</p>
+                        <p class="fs-6 fw-bold mb-2">@game.Opponent.FullName</p>
+                        @StatRow("Sets",        game.Opponent.Sets.ToString(), true)
+                        @if (game.Opponent.Points > 0)
+                        {
+                            @StatRowColoured("Rating ±", game.OpponentRatingDiff)
+                        }
+                        @StatRow("Place",       game.Opponent.Place > 0  ? "#" + game.Opponent.Place                : "—", false)
+                        @StatRow("Points",      game.Opponent.Points > 0 ? game.Opponent.Points.ToString()          : "—", false)
+                        @StatRow("Pts + Bonus", game.Opponent.Points > 0 ? game.Opponent.PointsWithBonus.ToString() : "—", false)
+                        @StatRow("Age",         game.Opponent.Age > 0    ? game.Opponent.Age.ToString()             : "—", false)
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    @if (competition != null)
+    {
+        <p class="text-muted mt-2" style="font-size:.85rem">
+            📅 @competition.Date.ToString("dd MMMM yyyy")
+            @if (!string.IsNullOrEmpty(competition.Places)) { <span> &bull; 📍 @competition.Places</span> }
+            <span> &bull; Coef: @competition.Coef</span>
+        </p>
+    }
+}
+
+@code {
+    [Parameter] public int PlayerId      { get; set; }
+    [Parameter] public int CompetitionId { get; set; }
+    [Parameter] public int GameId        { get; set; }
+
+    TtGame?        game;
+    TtCompetition? competition;
+
+    protected override async Task OnInitializedAsync()
+    {
+        game        = await Lgtf.GetGameDetailAsync(GameId, PlayerId);
+        competition = await Lgtf.GetCompetitionAsync(CompetitionId);
+    }
+
+    static string CardClass(bool isWinner) =>
+        isWinner ? "rounded p-2 h-100 border border-success border-opacity-50"
+                 : "rounded p-2 h-100 border border-danger  border-opacity-25";
+
+    RenderFragment StatRow(string label, string value, bool large) =>
+        @<div style="display:flex;justify-content:space-between;padding:.25rem 0;border-bottom:1px solid rgba(255,255,255,.1)">
+            <span style="color:rgba(255,255,255,.6);font-size:.82rem">@label</span>
+            <span style="font-weight:@(large ? "700" : "600");font-size:@(large ? "1.1rem" : ".9rem")">@value</span>
+        </div>;
+
+    RenderFragment StatRowColoured(string label, int value) =>
+        @<div style="display:flex;justify-content:space-between;padding:.25rem 0;border-bottom:1px solid rgba(255,255,255,.1)">
+            <span style="color:rgba(255,255,255,.6);font-size:.82rem">@label</span>
+            <span class="fw-bold @(value > 0 ? "text-success" : value < 0 ? "text-danger" : "text-white")"
+                  style="font-size:.95rem">
+                @(value > 0 ? "+" + value : value.ToString())
+            </span>
+        </div>;
+}

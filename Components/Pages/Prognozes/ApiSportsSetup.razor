@@ -1,0 +1,451 @@
+@page "/prognozes/{Slug}/api-setup"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject GameService GameService
+@inject ApiSportsService ApiSvc
+@inject NavigationManager Nav
+
+<AuthorizeView Roles="Admin">
+    <NotAuthorized>
+        <p class="text-danger">Admin only.</p>
+    </NotAuthorized>
+    <Authorized>
+        @if (tournament == null)
+        {
+            <p class="text-danger">Tournament not found.</p>
+        }
+        else
+        {
+            <nav aria-label="breadcrumb" class="mb-2">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item">
+                        <a href="/prognozes/@Slug/admin">⚙️ Admin</a>
+                    </li>
+                    <li class="breadcrumb-item active">🌐 API-Sports Setup</li>
+                </ol>
+            </nav>
+
+            <h4>🌐 API-Sports Auto-Score — @tournament.Icon @tournament.Name</h4>
+            <p class="text-muted" style="font-size:.88rem">
+                Type: <strong>@tournament.PointsCalculationType</strong> —
+                connects to <code>@(IsHockey ? "hockey" : "football").api-sports.io</code>
+            </p>
+
+            @* ── Enable / Disable toggle ─────────────────────────────────────── *@
+            @if (config?.ApiKey is { Length: > 0 })
+            {
+                <div class="tt-card pred-card mb-3 d-flex align-items-center gap-3">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch"
+                               id="apiEnabledToggle"
+                               checked="@config.IsEnabled"
+                               @onchange="ToggleEnabled" />
+                        <label class="form-check-label fw-semibold" for="apiEnabledToggle">
+                            @if (config.IsEnabled)
+                            {
+                                <span class="text-success">🟢 Auto-scoring ON</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">⚫ Auto-scoring OFF</span>
+                            }
+                        </label>
+                    </div>
+                    <span class="text-muted" style="font-size:.8rem">
+                        @(config.IsEnabled
+                            ? "Background service will fetch scores every 30 min."
+                            : "Background service is skipping this tournament.")
+                    </span>
+                </div>
+            }
+
+            @* ── Step 1: API Key ─────────────────────────────────────────────── *@
+            <div class="tt-card pred-card mb-3">
+                <div class="fw-semibold mb-2">Step 1 — API Key</div>
+                <div class="d-flex gap-2 flex-wrap align-items-start">
+                    <input class="form-control" style="max-width:340px"
+                           type="password"
+                           placeholder="Paste your api-sports.io key"
+                           @bind="apiKeyInput" />
+                    <button class="btn btn-outline-primary btn-sm"
+                            @onclick="TestKey" disabled="@busy">
+                        @if (busy) { <span>⏳</span> } else { <span>🔌 Test & Save</span> }
+                    </button>
+                </div>
+                @if (keyStatus != null)
+                {
+                    <div class="mt-2 @(keyOk ? "text-success" : "text-danger")" style="font-size:.85rem">
+                        @keyStatus
+                    </div>
+                }
+                @if (config?.ApiKey is { Length: > 0 })
+                {
+                    <div class="mt-1 text-muted" style="font-size:.8rem">
+                        ✅ Key saved — ends in <code>…@config.ApiKey[^4..]</code>
+                    </div>
+                }
+            </div>
+
+            @* ── Step 2: League ──────────────────────────────────────────────── *@
+            @if (config?.ApiKey is { Length: > 0 })
+            {
+                <div class="tt-card pred-card mb-3">
+                    <div class="fw-semibold mb-2">Step 2 — Select League</div>
+
+                    @if (config.LeagueId.HasValue)
+                    {
+                        <div class="text-success mb-2" style="font-size:.85rem">
+                            ✅ Selected: <strong>@config.LeagueName</strong> (ID @config.LeagueId),
+                            season <strong>@config.SeasonYear</strong>
+                        </div>
+                    }
+
+                    <div class="d-flex gap-2 flex-wrap align-items-center mb-2">
+                        <input class="form-control form-control-sm" style="max-width:200px"
+                               placeholder="Filter by name…"
+                               @bind="leagueFilter" @bind:event="oninput" />
+                        <button class="btn btn-outline-secondary btn-sm"
+                                @onclick="LoadLeagues" disabled="@busy">
+                            @(leagues == null ? "📋 Load Leagues" : "🔄 Reload")
+                        </button>
+                    </div>
+
+                    @if (leagues != null)
+                    {
+                        var filtered = string.IsNullOrWhiteSpace(leagueFilter)
+                            ? leagues
+                            : leagues.Where(l =>
+                                l.League.Name.Contains(leagueFilter, StringComparison.OrdinalIgnoreCase) ||
+                                l.Country.Name.Contains(leagueFilter, StringComparison.OrdinalIgnoreCase))
+                              .ToList();
+
+                        <div style="max-height:300px; overflow-y:auto">
+                            <table class="table table-sm table-hover mb-0" style="font-size:.82rem">
+                                <thead class="table-dark sticky-top">
+                                    <tr>
+                                        <th>ID</th><th>League</th><th>Country</th>
+                                        <th>Season</th><th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var l in filtered.Take(200))
+                                    {
+                                        var league = l;
+                                        var currentSeason = league.Seasons
+                                            .FirstOrDefault(s => s.Current)?.Year
+                                            ?? league.Seasons.LastOrDefault()?.Year
+                                            ?? DateTime.UtcNow.Year;
+                                        bool isSelected = config.LeagueId == league.League.Id;
+                                        <tr class="@(isSelected ? "table-success" : "table-dark")">
+                                            <td>@league.League.Id</td>
+                                            <td><strong>@league.League.Name</strong></td>
+                                            <td>@league.Country.Name</td>
+                                            <td>@currentSeason</td>
+                                            <td>
+                                                <button class="btn btn-sm @(isSelected ? "btn-success" : "btn-outline-primary") p-0 px-2"
+                                                        @onclick="() => SelectLeague(league, currentSeason)">
+                                                    @(isSelected ? "✓ Selected" : "Select")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="text-muted mt-1" style="font-size:.78rem">
+                            Showing @Math.Min(filtered.Count, 200) of @filtered.Count leagues
+                        </div>
+                    }
+                </div>
+            }
+
+            @* ── Step 3: Team Mapping ─────────────────────────────────────────── *@
+            @if (config?.LeagueId.HasValue == true)
+            {
+                <div class="tt-card pred-card mb-3">
+                    <div class="fw-semibold mb-2">Step 3 — Map Teams</div>
+                    <p class="text-muted" style="font-size:.82rem">
+                        Left = your local team names (from the Games list).
+                        Right = the matching team in API-Sports. Click a row to assign.
+                    </p>
+
+                    <button class="btn btn-outline-secondary btn-sm mb-3"
+                            @onclick="LoadTeams" disabled="@busy">
+                        @(apiTeams == null ? "📋 Load API Teams" : "🔄 Reload Teams")
+                    </button>
+
+                    @if (apiTeams != null)
+                    {
+                        @* Team search *@
+                        <input class="form-control form-control-sm mb-2" style="max-width:220px"
+                               placeholder="Search API teams…"
+                               @bind="teamFilter" @bind:event="oninput" />
+
+                        var filteredTeams = string.IsNullOrWhiteSpace(teamFilter)
+                            ? apiTeams
+                            : apiTeams.Where(t =>
+                                t.Team.Name.Contains(teamFilter, StringComparison.OrdinalIgnoreCase))
+                              .ToList();
+
+                        <div class="tt-grid" style="max-width:100%">
+                            @foreach (var local in localTeamNames)
+                            {
+                                var localName = local;
+                                var existingMap = teamMappings.FirstOrDefault(
+                                    m => m.LocalTeamName == localName);
+
+                                <div class="tt-card">
+                                    <div class="pred-card-top">
+                                        <span class="tt-name">@localName</span>
+                                        @if (existingMap != null)
+                                        {
+                                            <span class="badge bg-success ms-2">
+                                                → @existingMap.ApiTeamName (ID @existingMap.ApiTeamId)
+                                            </span>
+                                            <button class="btn btn-sm btn-outline-danger ms-auto p-0 px-1"
+                                                    style="font-size:.75rem"
+                                                    @onclick="() => RemoveMapping(localName)">✕</button>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted ms-2" style="font-size:.8rem">not mapped</span>
+                                        }
+                                    </div>
+
+                                    @if (expandedLocalTeam == localName)
+                                    {
+                                        <div style="max-height:220px; overflow-y:auto; margin-top:.4rem">
+                                            <table class="table table-sm table-hover mb-0" style="font-size:.8rem">
+                                                <tbody>
+                                                    @foreach (var t in filteredTeams.Take(100))
+                                                    {
+                                                        var team = t;
+                                                        <tr class="table-dark" style="cursor:pointer"
+                                                            @onclick="() => AssignTeam(localName, team.Team)">
+                                                            <td>@team.Team.Id</td>
+                                                            <td>@team.Team.Name</td>
+                                                            <td><button class="btn btn-xs btn-outline-success p-0 px-1" style="font-size:.75rem">Map</button></td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary mt-1 p-0 px-2"
+                                                style="font-size:.78rem"
+                                                @onclick="() => expandedLocalTeam = localName">
+                                            ▼ Pick API team
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @* Summary badge *@
+                        <div class="mt-3" style="font-size:.85rem">
+                            Mapped:
+                            <span class="badge bg-success">@teamMappings.Count</span> /
+                            <span class="badge bg-secondary">@localTeamNames.Count</span>
+                        </div>
+                    }
+                </div>
+            }
+
+            @* ── Sync Log ─────────────────────────────────────────────────────── *@
+            @if (config?.LeagueId.HasValue == true)
+            {
+                <div class="tt-card pred-card mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold">🕓 Recent Sync Log</span>
+                        <button class="btn btn-sm btn-outline-secondary p-0 px-2"
+                                style="font-size:.78rem"
+                                @onclick="LoadSyncLog">Refresh</button>
+                    </div>
+
+                    @if (syncLogs == null)
+                    {
+                        <p class="text-muted" style="font-size:.82rem">Click Refresh to load.</p>
+                    }
+                    else if (!syncLogs.Any())
+                    {
+                        <p class="text-muted" style="font-size:.82rem">No sync attempts yet.</p>
+                    }
+                    else
+                    {
+                        <div style="max-height:260px; overflow-y:auto">
+                        @foreach (var entry in syncLogs)
+                        {
+                            <div class="pred-expand-row mb-1">
+                                <span class="@(entry.Success ? "text-success" : "text-warning")"
+                                      style="flex-shrink:0">
+                                    @(entry.Success ? "✅" : "⚠️")
+                                </span>
+                                <span class="text-muted" style="font-size:.75rem; flex-shrink:0; min-width:120px">
+                                    @entry.RunAt.ToLocalTime().ToString("MM-dd HH:mm")
+                                </span>
+                                <span style="font-size:.8rem">@entry.Message</span>
+                            </div>
+                        }
+                        </div>
+                    }
+                </div>
+            }
+
+            @* ── General status messages ──────────────────────────────────────── *@
+            @if (statusMsg != null)
+            {
+                <div class="@(statusOk ? "text-success" : "text-danger") mb-2" style="font-size:.85rem">
+                    @statusMsg
+                </div>
+            }
+        }
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+
+    Tournament?          tournament;
+    ApiSportsConfig?     config;
+    List<ApiLeague>?     leagues;
+    List<ApiTeamWrapper>? apiTeams;
+    List<ApiTeamMapping> teamMappings = new();
+    List<ApiSyncLog>?    syncLogs;
+    List<string>         localTeamNames = new();
+
+    string  apiKeyInput      = "";
+    string  leagueFilter     = "";
+    string  teamFilter       = "";
+    string? expandedLocalTeam;
+    bool    busy;
+    bool    keyOk;
+    string? keyStatus;
+    string? statusMsg;
+    bool    statusOk;
+
+    bool IsHockey => tournament?.PointsCalculationType == "Hockey";
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament   = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        config       = await GameService.GetApiConfigAsync(tournament.Id);
+        teamMappings = await GameService.GetApiTeamMappingsAsync(tournament.Id);
+
+        // Collect distinct team names used in this tournament's games
+        var games = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+        localTeamNames = games
+            .SelectMany(g => new[] { g.HomeTeam, g.AwayTeam })
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Distinct()
+            .OrderBy(t => t)
+            .ToList();
+
+        if (config != null && config.ApiKey.Length > 0)
+            apiKeyInput = config.ApiKey; // pre-fill (shown masked via type=password)
+    }
+
+    // ── Enable / Disable ──────────────────────────────────────────────────────
+
+    private async Task ToggleEnabled()
+    {
+        if (config == null) return;
+        config.IsEnabled = !config.IsEnabled;
+        await GameService.SaveApiConfigAsync(config);
+    }
+
+    // ── Step 1: Test & save key ───────────────────────────────────────────────
+
+    private async Task TestKey()
+    {
+        if (string.IsNullOrWhiteSpace(apiKeyInput)) return;
+        busy = true; keyStatus = null;
+        StateHasChanged();
+
+        var status = await ApiSvc.TestKeyAsync(apiKeyInput.Trim(), IsHockey);
+        if (status?.Account == null)
+        {
+            keyOk = false;
+            keyStatus = "❌ Connection failed — check key and try again.";
+        }
+        else
+        {
+            keyOk = true;
+            keyStatus = $"✅ Connected as {status.Account.Firstname} {status.Account.Lastname} " +
+                        $"| Plan: {status.Subscription?.Plan} " +
+                        $"| Requests today: {status.Requests?.Current}/{status.Requests?.LimitDay}";
+
+            // Save/update config
+            config ??= new ApiSportsConfig { TournamentId = tournament!.Id };
+            config.ApiKey = apiKeyInput.Trim();
+            await GameService.SaveApiConfigAsync(config);
+            config = await GameService.GetApiConfigAsync(tournament!.Id);
+        }
+        busy = false;
+    }
+
+    // ── Step 2: Leagues ───────────────────────────────────────────────────────
+
+    private async Task LoadLeagues()
+    {
+        if (config?.ApiKey is not { Length: > 0 }) return;
+        busy = true; StateHasChanged();
+        leagues = await ApiSvc.GetLeaguesAsync(config.ApiKey, IsHockey);
+        busy = false;
+    }
+
+    private async Task SelectLeague(ApiLeague league, int season)
+    {
+        if (config == null) return;
+        config.LeagueId   = league.League.Id;
+        config.LeagueName = $"{league.League.Name} ({league.Country.Name})";
+        config.SeasonYear = season;
+        await GameService.SaveApiConfigAsync(config);
+
+        statusOk  = true;
+        statusMsg = $"✅ League saved: {config.LeagueName}, season {season}";
+        apiTeams  = null; // reset so teams are reloaded for new league
+    }
+
+    // ── Step 3: Teams ─────────────────────────────────────────────────────────
+
+    private async Task LoadTeams()
+    {
+        if (config?.ApiKey is not { Length: > 0 } || !config.LeagueId.HasValue) return;
+        busy = true; StateHasChanged();
+        apiTeams = await ApiSvc.GetTeamsAsync(
+            config.ApiKey, IsHockey, config.LeagueId.Value, config.SeasonYear);
+        busy = false;
+    }
+
+    private async Task AssignTeam(string localName, ApiTeamInfo apiTeam)
+    {
+        await GameService.SaveApiTeamMappingAsync(
+            tournament!.Id, localName, apiTeam.Id, apiTeam.Name);
+        teamMappings = await GameService.GetApiTeamMappingsAsync(tournament.Id);
+        expandedLocalTeam = null; // collapse picker after selection
+        statusOk  = true;
+        statusMsg = $"✅ Mapped '{localName}' → {apiTeam.Name}";
+    }
+
+    private async Task RemoveMapping(string localName)
+    {
+        await GameService.DeleteApiTeamMappingAsync(tournament!.Id, localName);
+        teamMappings = await GameService.GetApiTeamMappingsAsync(tournament.Id);
+        statusOk  = false;
+        statusMsg = $"Removed mapping for '{localName}'";
+    }
+
+    // ── Sync log ──────────────────────────────────────────────────────────────
+
+    private async Task LoadSyncLog()
+    {
+        if (tournament == null) return;
+        syncLogs = await GameService.GetApiSyncLogsAsync(tournament.Id);
+    }
+}

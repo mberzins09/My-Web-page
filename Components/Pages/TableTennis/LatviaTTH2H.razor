@@ -1,0 +1,242 @@
+@page "/lgtf-tt/h2h"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject LgtfDataService Lgtf
+@inject NavigationManager Nav
+
+<h3>🏓 H2H spēles</h3>
+
+<div class="row g-3 mb-3" style="max-width:700px">
+
+    <div class="col-sm-6">
+        <label class="form-label">1. spēlētājs</label>
+        <div style="position:relative">
+            @if (playerA == null)
+            {
+                <input class="form-control" placeholder="Vārds vai uzvārds..."
+                       value="@searchA" @oninput="e => OnSearchInput(e, 'A')" />
+                @if (resultsA.Count > 0)
+                {
+                    <div class="list-group shadow" style="position:absolute;z-index:100;width:100%">
+                        @foreach (var p in resultsA)
+                        {
+                            var player = p;
+                            <button type="button" class="list-group-item list-group-item-action"
+                                    @onclick="() => SelectPlayer(player, 'A')">
+                                @player.FullName
+                            </button>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="d-flex align-items-center gap-2">
+                    <span class="form-control bg-transparent border-success text-success fw-bold">
+                        @playerA.FullName
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ClearPlayerA">✕</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="col-sm-6">
+        <label class="form-label">2. spēlētājs</label>
+        <div style="position:relative">
+            @if (playerB == null)
+            {
+                <input class="form-control" placeholder="Vārds vai uzvārds..."
+                       value="@searchB" @oninput="e => OnSearchInput(e, 'B')" />
+                @if (resultsB.Count > 0)
+                {
+                    <div class="list-group shadow" style="position:absolute;z-index:100;width:100%">
+                        @foreach (var p in resultsB)
+                        {
+                            var player = p;
+                            <button type="button" class="list-group-item list-group-item-action"
+                                    @onclick="() => SelectPlayer(player, 'B')">
+                                @player.FullName
+                            </button>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="d-flex align-items-center gap-2">
+                    <span class="form-control bg-transparent border-success text-success fw-bold">
+                        @playerB.FullName
+                    </span>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ClearPlayerB">✕</button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@if (playerA != null && playerB != null)
+{
+    @if (h2hGames == null)
+    {
+        <div class="d-flex align-items-center gap-2 text-muted">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            <span>Ielādē...</span>
+        </div>
+    }
+    else
+    {
+        int winsA = h2hGames.Count(g => g.PlayerASets > g.PlayerBSets);
+        int winsB = h2hGames.Count(g => g.PlayerBSets > g.PlayerASets);
+        int total = h2hGames.Count;
+
+        int ratingTotalA = h2hGames.Sum(g => g.PlayerARatingDiff);
+        int ratingTotalB = h2hGames.Sum(g => g.PlayerBRatingDiff);
+        bool hasRating   = h2hGames.Any(g => g.PlayerARatingDiff != 0 || g.PlayerBRatingDiff != 0);
+
+        <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+            <span class="badge bg-success fs-6 px-3">@playerA.Name @playerA.Surname: @winsA</span>
+            <span class="fw-bold text-muted">vs</span>
+            <span class="badge bg-primary fs-6 px-3">@playerB.Name @playerB.Surname: @winsB</span>
+            <span class="text-muted" style="font-size:.9rem">(@total spēles kopā)</span>
+        </div>
+
+        @if (hasRating)
+        {
+            <div class="d-flex gap-4 mb-3" style="font-size:.85rem">
+                <span>
+                    @playerA.Name @playerA.Surname rating total:
+                    <strong class="@RatingClass(ratingTotalA)">@RatingStr(ratingTotalA)</strong>
+                </span>
+                <span>
+                    @playerB.Name @playerB.Surname rating total:
+                    <strong class="@RatingClass(ratingTotalB)">@RatingStr(ratingTotalB)</strong>
+                </span>
+            </div>
+        }
+
+        @if (total == 0)
+        {
+            <p class="text-muted">Nav atrasta neviena kopēja spēle.</p>
+        }
+        else
+        {
+            <div class="tt-grid">
+                @foreach (var g in h2hGames)
+                {
+                    var game = g;
+                    bool aWon = game.PlayerASets > game.PlayerBSets;
+                    <div class="tt-card" @onclick="() => GoToGame(game)">
+                        <div class="tt-card-top">
+                            <span class="tt-name" title="@game.CompetitionName">@Truncate(game.CompetitionName)</span>
+                            <span class="tt-date">@game.ParsedDate.ToString("dd MMM yyyy")</span>
+                        </div>
+                        <div class="tt-h2h-row">
+                            @if (hasRating)
+                            {
+                                <span class="tt-h2h-pts fw-semibold @RatingClass(game.PlayerARatingDiff)">
+                                    @if (game.PlayerARatingDiff != 0) { @RatingStr(game.PlayerARatingDiff) }
+                                    else { <span>0</span> }
+                                </span>
+                            }
+                            <span class="tt-h2h-name">@playerA.Name[0]. @playerA.Surname</span>
+                            <span class="tt-h2h-score">
+                                <span class="fw-bold @(aWon ? "text-success" : "text-danger")">@game.PlayerASets</span><span class="tt-h2h-colon">:</span><span class="fw-bold @(!aWon ? "text-success" : "text-danger")">@game.PlayerBSets</span>
+                            </span>
+                            <span class="tt-h2h-name">@playerB.Name[0]. @playerB.Surname</span>
+                            @if (hasRating)
+                            {
+                                <span class="tt-h2h-pts fw-semibold @RatingClass(game.PlayerBRatingDiff)">
+                                    @if (game.PlayerBRatingDiff != 0) { @RatingStr(game.PlayerBRatingDiff) }
+                                    else { <span>0</span> }
+                                </span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "a")] public int? PidA { get; set; }
+    [SupplyParameterFromQuery(Name = "b")] public int? PidB { get; set; }
+
+    string         searchA  = "";
+    string         searchB  = "";
+    List<TtPlayer> resultsA = [];
+    List<TtPlayer> resultsB = [];
+    TtPlayer?      playerA;
+    TtPlayer?      playerB;
+    List<TtH2HGame>? h2hGames;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (PidA.HasValue && PidA > 0 && (playerA == null || playerA.Id != PidA.Value))
+        {
+            playerA = await Lgtf.GetPlayerAsync(PidA.Value);
+            if (playerA != null) searchA = playerA.FullName;
+        }
+        if (PidB.HasValue && PidB > 0 && (playerB == null || playerB.Id != PidB.Value))
+        {
+            playerB = await Lgtf.GetPlayerAsync(PidB.Value);
+            if (playerB != null) searchB = playerB.FullName;
+        }
+        if (playerA != null && playerB != null && h2hGames == null)
+            await LoadH2H();
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e, char side)
+    {
+        var q = e.Value?.ToString() ?? "";
+        if (side == 'A') searchA = q; else searchB = q;
+
+        if (q.Length < 2)
+        {
+            if (side == 'A') resultsA.Clear(); else resultsB.Clear();
+            return;
+        }
+        var hits = await Lgtf.SearchPlayersAsync(q);
+        if (side == 'A') resultsA = hits; else resultsB = hits;
+    }
+
+    private async Task SelectPlayer(TtPlayer p, char side)
+    {
+        if (side == 'A') { playerA = p; searchA = p.FullName; resultsA.Clear(); }
+        else             { playerB = p; searchB = p.FullName; resultsB.Clear(); }
+        UpdateUrl();
+        if (playerA != null && playerB != null) await LoadH2H();
+    }
+
+    private void ClearPlayerA() { playerA = null; searchA = ""; resultsA.Clear(); h2hGames = null; UpdateUrl(); }
+    private void ClearPlayerB() { playerB = null; searchB = ""; resultsB.Clear(); h2hGames = null; UpdateUrl(); }
+
+    private async Task LoadH2H()
+    {
+        if (playerA == null || playerB == null) return;
+        h2hGames = null;
+        StateHasChanged();
+        h2hGames = await Lgtf.GetH2HGamesAsync(playerA.Id, playerB.Id);
+    }
+
+    private void GoToGame(TtH2HGame g)
+    {
+        if (playerA == null) return;
+        Nav.NavigateTo("/lgtf-tt/" + playerA.Id + "/" + g.CompetitionId + "/" + g.GameId);
+    }
+
+    private void UpdateUrl()
+    {
+        string url = "/lgtf-tt/h2h";
+        if      (playerA != null && playerB != null) url = "/lgtf-tt/h2h?a=" + playerA.Id + "&b=" + playerB.Id;
+        else if (playerA != null)                    url = "/lgtf-tt/h2h?a=" + playerA.Id;
+        else if (playerB != null)                    url = "/lgtf-tt/h2h?b=" + playerB.Id;
+        Nav.NavigateTo(url, replace: true);
+    }
+
+    private static string Truncate(string s, int max = 55) => s.Length <= max ? s : s[..max] + "…";
+    private static string RatingClass(int v) => v > 0 ? "text-success" : v < 0 ? "text-danger" : "text-white";
+    private static string RatingStr(int v)   => v > 0 ? "+" + v : v.ToString();
+}

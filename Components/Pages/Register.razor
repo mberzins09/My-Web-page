@@ -1,0 +1,48 @@
+﻿@page "/register"
+@rendermode InteractiveServer
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h3 class="card-title text-center mb-4">📝 Register</h3>
+                <input class="form-control mb-3" @bind="username" placeholder="Username" />
+                <input class="form-control mb-3" @bind="email" placeholder="Email" type="email" />
+                <input class="form-control mb-3" @bind="password" placeholder="Password" type="password" />
+                <button class="btn btn-primary w-100" @onclick="HandleRegister">
+                    Create Account
+                </button>
+                @if (message != null)
+                {
+                    <p class="mt-3 text-center text-danger">@message</p>
+                }
+                <hr />
+                <p class="text-center text-muted mb-0">
+                    Already have an account?
+                    <a href="/login">Login here</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    string username = "", email = "", password = "";
+    string? message;
+
+    async Task HandleRegister()
+    {
+        bool success = await JS.InvokeAsync<bool>("registerUser", username, email, password);
+
+        if (success)
+        {
+            Nav.NavigateTo("/", forceLoad: true);
+        }
+        else
+        {
+            message = "Registration failed. Email may already be in use.";
+        }
+    }
+}

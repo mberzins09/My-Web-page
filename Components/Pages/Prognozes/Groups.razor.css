@@ -1,0 +1,32 @@
+.group-table {
+    width: auto;
+    font-size: .875rem;
+}
+
+.group-table .black-cell {
+    background-color: #ffffff !important;
+    min-width: 48px;
+}
+
+.group-table .team-col {
+    min-width: 70px;
+    max-width: 120px;
+    font-size: .75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.group-table .team-name-col {
+    white-space: nowrap;
+    min-width: 110px;
+}
+
+.group-table .score-cell {
+    min-width: 48px;
+    white-space: nowrap;
+}
+
+.group-table .stat-col {
+    min-width: 42px;
+}
