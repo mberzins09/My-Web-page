@@ -91,16 +91,14 @@
                         @foreach (var game in filteredGames)
                         {
                             var pred    = selectedUserPredictions.FirstOrDefault(p => p.GameId == game.Id);
-                            var started = game.GameDate < LatviaTime;
+                            var started = game.GameDate < PredictionHelper.LatviaTime;
                             var hasPred = pred != null;
 
                             int? earnedPoints = null;
                             if (hasPred && started && game.HomeScore != null && game.AwayScore != null)
                                 earnedPoints = PointsCalculator.Calculate(
                                     pred!.PredictedHomeScore, pred.PredictedAwayScore, pred.PredictedIsOvertime,
-                                    game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,
-                                    game.Stage,
-                                    tournament.PointsCalculationType);
+                                    game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,game.Stage, ResolvedCalcType);
 
                             <div class="tt-card pred-card">
                                 <div class="pred-card-top">
@@ -163,7 +161,7 @@
                     {
                         // Only games that have already started (so predictions are revealed)
                         var gamesInGroup = (games ?? new())
-                            .Where(g => g.Stage == selectedStage && g.GameDate < LatviaTime)
+                            .Where(g => g.Stage == selectedStage && g.GameDate < PredictionHelper.LatviaTime)
                             .ToList();
                         var teams = GetTeams(gamesInGroup);
 
@@ -260,8 +258,10 @@
     int?             currentUserId;
     int              selectedUserId = 0;
     string?          selectedStage;
+    UserGroup? selectedUserGroup;
+    List<UserGroup> allUserGroups = new();
 
-    DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+    string ResolvedCalcType => PredictionHelper.ResolveCalcType(selectedUserGroup, tournament!);
 
     List<string> stages => games?
         .Select(g => g.Stage)
@@ -270,17 +270,7 @@
         .OrderBy(StageOrder)
         .ToList() ?? new();
 
-    List<Game> filteredGames
-    {
-        get
-        {
-            var today = LatviaTime.Date.AddDays(-1);
-            var all = games?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
-            var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
-            var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
-            return upcoming.Concat(past).ToList();
-        }
-    }
+    List<Game> filteredGames => PredictionHelper.FilteredGames(games, selectedStage);
 
     protected override async Task OnInitializedAsync()
     {
@@ -294,6 +284,7 @@
         {
             var allMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
             groupMates = allMates.Where(u => u.Id != currentUserId.Value).ToList();
+            allUserGroups = await GameService.GetUserGroupsByTournamentAsync(tournament.Id);
         }
     }
 
@@ -305,40 +296,16 @@
         if (selectedUserId == 0 || tournament == null)
         {
             selectedUserPredictions = new();
+            selectedUserGroup = null;
             return;
         }
         selectedUserPredictions = await GameService.GetUserPredictionsByTournamentAsync(selectedUserId, tournament.Id);
+        selectedUserGroup = allUserGroups.FirstOrDefault(g => g.Members.Any(m => m.UserId == selectedUserId));
     }
 
-    int StageOrder(string stage) => stage.ToLower() switch
-    {
-        var s when s.Contains("grupa") => 0,
-        "round of 32"   => 1,
-        "round of 16"   => 2,
-        "quarter-final" => 3,
-        "semi-final"    => 4,
-        "final"         => 5,
-        _               => 99
-    };
+    int StageOrder(string stage) => PredictionHelper.StageOrder(stage);
 
-    string PointsBadgeClass(int pts)
-    {
-        int max = (tournament?.PointsCalculationType) switch
-        {
-            "Hockey"                => 10,
-            "Hockey2" or "Football2" => 7,
-            _                       => 7
-        };
-        int pct = max > 0 ? pts * 100 / max : 0;
-        return pct switch
-        {
-            100   => "bg-warning text-dark",
-            >= 50 => "bg-success",
-            >= 25 => "bg-info text-dark",
-            > 0   => "bg-secondary",
-            _     => "bg-danger"
-        };
-    }
+    string PointsBadgeClass(int pts) => PredictionHelper.PointsBadgeClass(pts, ResolvedCalcType);
 
     // ── Group table helpers ───────────────────────────────────────────────────
 
@@ -360,8 +327,7 @@
     // Standings based on the selected user's predictions (only started games are passed in)
     List<TeamStanding> ComputePredictedStandings(List<string> teams, List<Game> gamesInGroup)
     {
-        bool isHockey = tournament?.PointsCalculationType == "Hockey"
-                     || tournament?.PointsCalculationType == "Hockey2";
+        bool isHockey = ResolvedCalcType == "Hockey" || ResolvedCalcType == "Hockey2";
         return teams.Select(team =>
         {
             int pts = 0, gf = 0, ga = 0;

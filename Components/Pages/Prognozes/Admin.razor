@@ -380,6 +380,21 @@
                             <p class="text-white-50 mb-2" style="font-size:.85rem">
                                 Check users to include in this group. A user can be in multiple groups.
                             </p>
+
+                            @* NEW: calc type override *@
+                            <div class="d-flex align-items-center gap-2 mb-3" style="max-width:360px">
+                                <label class="mb-0 text-nowrap text-white-50" style="font-size:.85rem">Calc type:</label>
+                                <select class="form-select form-select-sm bg-dark text-white border-secondary"
+                                        value="@(ug.PointsCalculationType ?? "")"
+                                        @onchange="async e => await SetUserGroupCalcTypeAsync(ug.Id, e.Value?.ToString())">
+                                    <option value="">— inherit from tournament —</option>
+                                    <option value="Football">⚽ Football</option>
+                                    <option value="Hockey">🏒 Hockey</option>
+                                    <option value="Football2">⚽ Football2</option>
+                                    <option value="Hockey2">🏒 Hockey2</option>
+                                </select>
+                            </div>
+
                             <div class="d-flex flex-wrap gap-2">
                                 @foreach (var user in allUsers)
                                 {
@@ -711,6 +726,8 @@
     }
 
     // ── User Competition Groups ────────────────────────────────────────────────
+
+    async Task SetUserGroupCalcTypeAsync(int groupId, string? calcType) => await GameService.SetUserGroupCalcTypeAsync(groupId, calcType);
 
     async Task CreateUserGroup()
     {

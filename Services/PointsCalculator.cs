@@ -34,9 +34,6 @@ namespace MartinsWeb.Services
             else
                 points = 0;
 
-            if (stage.Trim().Equals("Final", StringComparison.OrdinalIgnoreCase))
-                points *= 2;
-
             return points;
         }
 
@@ -80,9 +77,6 @@ namespace MartinsWeb.Services
                 // Wrong winner: 1 pt only if both prediction and result were overtime
                 points = (predOT && actualOT) ? 1 : 0;
             }
-
-            if (stage.Trim().Equals("Final", StringComparison.OrdinalIgnoreCase))
-                points *= 2;
 
             return points;
         }

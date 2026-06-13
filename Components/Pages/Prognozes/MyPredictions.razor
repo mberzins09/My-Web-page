@@ -56,7 +56,7 @@
                     @foreach (var game in filteredGames)
                     {
                         var pred   = predictions.FirstOrDefault(p => p.GameId == game.Id);
-                        var isPast = game.GameDate < LatviaTime;
+                        var isPast = game.GameDate < PredictionHelper.LatviaTime;
                         EnsureEditValue(game.Id, pred);
 
                         int? earnedPoints = null;
@@ -73,13 +73,8 @@
                                 <span class="pred-input-col">
                                     @if (!isPast)
                                     {
-                                        var calcType = tournament?.PointsCalculationType ?? "Football";
-                                        var isHockeyType = calcType == "Hockey" || calcType == "Hockey2";
-                                        var isFootball2Playoff = calcType == "Football2"
-                                            && !game.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
-                                            && !game.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
-                                        var canOT = (isHockeyType || isFootball2Playoff)
-                                                    && Math.Abs(editValues[game.Id].Home - editValues[game.Id].Away) == 1;
+                                        var resolvedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
+                                        var canOT = PredictionHelper.CanHaveOT(game, resolvedCalcType, editValues[game.Id].Home - editValues[game.Id].Away);
                                         <div class="d-flex align-items-center gap-1 flex-nowrap">
                                             <input class="form-control pred-score-input" type="number" min="0" max="20"
                                                    value="@editValues[game.Id].Home"
@@ -243,8 +238,7 @@
     string?      selectedStage;
     string?      saveError;
     int?         userId;
-
-    DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+    UserGroup? userGroup;
 
     List<string> stages => games?
         .Select(g => g.Stage)
@@ -253,17 +247,7 @@
         .OrderBy(StageOrder)
         .ToList() ?? new();
 
-    List<Game> filteredGames
-    {
-        get
-        {
-            var today = LatviaTime.Date.AddDays(-1);
-            var all = games?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
-            var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
-            var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
-            return upcoming.Concat(past).ToList();
-        }
-    }
+    List<Game> filteredGames => PredictionHelper.FilteredGames(games, selectedStage);
 
     int totalPoints => predictions
         .Where(p => p.Game?.HomeScore != null && p.Game?.AwayScore != null)
@@ -273,48 +257,18 @@
     int CalcPoints(Prediction p, Game g)
     {
         if (g.HomeScore == null || g.AwayScore == null) return 0;
+        var calcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
         return PointsCalculator.Calculate(
             p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
             g.HomeScore.Value, g.AwayScore.Value, g.IsOvertime,
-            g.Stage,
-            tournament?.PointsCalculationType ?? "Football");
+            g.Stage, calcType);
     }
 
-    int StageOrder(string stage) => stage.ToLower() switch
-    {
-        var s when s.Contains("grupa") => 0,
-        "round of 32"   => 1,
-        "round of 16"   => 2,
-        "quarter-final" => 3,
-        "semi-final"    => 4,
-        "final"         => 5,
-        _               => 99
-    };
+    int StageOrder(string stage) => PredictionHelper.StageOrder(stage);
 
-    string PointsBadgeClass(int pts)
-    {
-        int max = (tournament?.PointsCalculationType) switch
-        {
-            "Hockey"                => 10,
-            "Hockey2" or "Football2" => 7,
-            _                       => 7
-        };
-        int pct = max > 0 ? pts * 100 / max : 0;
-        return pct switch
-        {
-            100    => "bg-warning text-dark",
-            >= 50  => "bg-success",
-            >= 25  => "bg-info text-dark",
-            > 0    => "bg-secondary",
-            _      => "bg-danger"
-        };
-    }
+    string PointsBadgeClass(int pts) => PredictionHelper.PointsBadgeClass(pts, PredictionHelper.ResolveCalcType(userGroup, tournament!));
 
-    int ParseScore(ChangeEventArgs e)
-    {
-        int.TryParse(e.Value?.ToString(), out var v);
-        return Math.Max(0, Math.Min(20, v));
-    }
+    int ParseScore(ChangeEventArgs e) => PredictionHelper.ParseScore(e);
 
     protected override async Task OnInitializedAsync()
     {
@@ -334,6 +288,9 @@
                     Away       = pred.PredictedAwayScore,
                     IsOvertime = pred.PredictedIsOvertime
                 };
+
+            var groups = await GameService.GetUserGroupsForUserAsync(userId.Value, tournament.Id);
+            userGroup = groups.FirstOrDefault();
         }
     }
 

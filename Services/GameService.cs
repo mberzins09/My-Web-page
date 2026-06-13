@@ -335,9 +335,10 @@ namespace MartinsWeb.Services
         /// If filterUserIds is provided, only those users are included (for group filtering).
         /// </summary>
         public async Task<List<(User User, int Points)>> GetLeaderboardByTournamentAsync(
-            int tournamentId, List<int>? filterUserIds = null)
+            int tournamentId, List<int>? filterUserIds = null, string? calcTypeOverride = null)
         {
             var tournament = await _db.Tournaments.FindAsync(tournamentId);
+            var calcType = calcTypeOverride ?? tournament?.PointsCalculationType ?? "Football";  // NEW
 
             var query = _db.Users
                 .Include(u => u.Predictions)
@@ -361,7 +362,7 @@ namespace MartinsWeb.Services
                                 p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
                                 p.Game.HomeScore.Value, p.Game.AwayScore.Value, p.Game.IsOvertime,
                                 p.Game.Stage,
-                                tournament?.PointsCalculationType ?? "Football");
+                                calcType);                // CHANGED: was tournament?.PointsCalculationType
                         })
                 ))
                 .OrderByDescending(x => x.Points)
@@ -587,6 +588,34 @@ namespace MartinsWeb.Services
         {
             var h = await _db.PredictionsHistories.FindAsync(historyId);
             if (h != null) { _db.PredictionsHistories.Remove(h); await _db.SaveChangesAsync(); }
+        }
+
+        /// <summary>
+        /// Returns each UserGroup the given user belongs to for this tournament,
+        /// with all member user IDs. Used for per-group leaderboard filtering.
+        /// </summary>
+        public async Task<List<UserGroup>> GetUserGroupsForUserAsync(int userId, int tournamentId)
+        {
+            var groupIds = await _db.UserGroupMembers
+                .Where(m => m.UserId == userId && m.UserGroup.TournamentId == tournamentId)
+                .Select(m => m.UserGroupId)
+                .ToListAsync();
+
+            if (!groupIds.Any()) return new List<UserGroup>();
+
+            return await _db.UserGroups
+                .Include(g => g.Members)
+                .Where(g => groupIds.Contains(g.Id))
+                .OrderBy(g => g.Name)
+                .ToListAsync();
+        }
+
+        public async Task SetUserGroupCalcTypeAsync(int groupId, string? calcType)
+        {
+            var group = await _db.UserGroups.FindAsync(groupId);
+            if (group == null) return;
+            group.PointsCalculationType = calcType;
+            await _db.SaveChangesAsync();
         }
     }
 }
