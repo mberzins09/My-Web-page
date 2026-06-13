@@ -64,7 +64,7 @@ else
                             }
                         </span>
                         <span class="pred-right-col">
-                            @if (match.GameDate < LatviaTime && allUserPredictions.Any())
+                            @if (match.GameDate < PredictionHelper.LatviaTime && allUserPredictions.Any())
                             {
                                 <button class="btn btn-sm btn-outline-secondary p-0 px-2"
                                         style="font-size:.8rem; line-height:1.6"
@@ -75,13 +75,7 @@ else
                             }
                             <AuthorizeView Roles="Admin">
                                 @{
-                                    var calcTypeS = tournament?.PointsCalculationType ?? "Football";
-                                    var isHockeyTypeS = calcTypeS == "Hockey" || calcTypeS == "Hockey2";
-                                    var isF2PlayoffS = calcTypeS == "Football2"
-                                        && !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
-                                        && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
-                                    var canOT = (isHockeyTypeS || isF2PlayoffS)
-                                                && Math.Abs(scoreInputs[match.Id].Home - scoreInputs[match.Id].Away) == 1;
+                                    var canOT = PredictionHelper.CanHaveOT(match, tournament?.PointsCalculationType ?? "Football", Math.Abs(scoreInputs[match.Id].Home - scoreInputs[match.Id].Away));
                                 }
                                 <div class="d-flex align-items-center gap-1 flex-nowrap">
                                     <input class="form-control pred-score-input" type="number" min="0" max="20"
@@ -135,9 +129,9 @@ else
                                 <div style="font-size:.8rem; color:#aaa; margin-bottom:6px;">
                                     <span>@MostPopular(gamePreds, match)</span>
                                 </div>
-                                @foreach (var (user, pred) in gamePreds)
+                                @foreach (var (user, pred, group) in gamePreds)
                                 {
-                                    var pts = match.HomeScore != null ? CalcPoints(pred!, match) : (int?)null;
+                                    var pts = match.HomeScore != null ? CalcPoints(pred!, match, group) : (int?)null;
                                     
                                     <div class="pred-expand-row">
                                         <span class="pred-expand-name">@user.Username</span>
@@ -168,9 +162,7 @@ else
     string?      selectedStage;
 
     // userId -> their predictions for this tournament (preloaded at init)
-    List<(User user, Prediction? pred)> allUserPredictions = new();
-
-    DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+    List<(User user, Prediction? pred, UserGroup? group)> allUserPredictions = new();
 
     List<string> stages => matches?
         .Select(g => g.Stage)
@@ -179,28 +171,9 @@ else
         .OrderBy(StageOrder)
         .ToList() ?? new();
 
-    List<Game> filteredGames
-    {
-        get
-        {
-            var today = LatviaTime.Date;
-            var all = matches?.Where(g => selectedStage == null || g.Stage == selectedStage) ?? Enumerable.Empty<Game>();
-            var upcoming = all.Where(g => g.GameDate.Date >= today).OrderBy(g => g.GameDate).ThenBy(g => StageOrder(g.Stage));
-            var past = all.Where(g => g.GameDate.Date < today).OrderByDescending(g => g.GameDate);
-            return upcoming.Concat(past).ToList();
-        }
-    }
+    List<Game> filteredGames => PredictionHelper.FilteredGames(matches, selectedStage);
 
-    int StageOrder(string stage) => stage.ToLower() switch
-    {
-        var s when s.Contains("grupa") => 0,
-        "round of 32"   => 1,
-        "round of 16"   => 2,
-        "quarter-final" => 3,
-        "semi-final"    => 4,
-        "final"         => 5,
-        _               => 99
-    };
+    int StageOrder(string stage) => PredictionHelper.StageOrder(stage);
 
     int ParseScore(ChangeEventArgs e)
     {
@@ -213,6 +186,8 @@ else
         tournament = await GameService.GetTournamentBySlugAsync(Slug);
         if (tournament == null) return;
 
+        var userGroupsList = await GameService.GetUserGroupsByTournamentAsync(tournament.Id);
+
         matches = await GameService.GetMatchesByTournamentAsync(tournament.Id);
         foreach (var m in matches)
             scoreInputs[m.Id] = new ScoreInput { Home = m.HomeScore ?? 0, Away = m.AwayScore ?? 0, IsOvertime = m.IsOvertime };
@@ -224,44 +199,28 @@ else
             var groupMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
             foreach (var user in groupMates)
             {
+                var userGroup = userGroupsList.FirstOrDefault(g => g.Members.Any(m => m.UserId == user.Id));
                 var preds = await GameService.GetUserPredictionsByTournamentAsync(user.Id, tournament.Id);
                 foreach (var m in matches)
                 {
                     var pred = preds.FirstOrDefault(p => p.GameId == m.Id);
-                    allUserPredictions.Add((user, pred));
+                    allUserPredictions.Add((user, pred, userGroup));
                 }
             }
         }
     }
 
-    int CalcPoints(Prediction p, Game g)
+    int CalcPoints(Prediction p, Game g, UserGroup? userGroup = null)
     {
         if (g.HomeScore == null || g.AwayScore == null) return 0;
+        var calcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
         return PointsCalculator.Calculate(
             p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
             g.HomeScore.Value, g.AwayScore.Value, g.IsOvertime,
-            g.Stage,
-            tournament?.PointsCalculationType ?? "Football");
+            g.Stage, calcType);
     }
 
-    string PointsBadgeClass(int pts)
-    {
-        int max = (tournament?.PointsCalculationType) switch
-        {
-            "Hockey"                => 10,
-            "Hockey2" or "Football2" => 6,
-            _                       => 6
-        };
-        int pct = max > 0 ? pts * 100 / max : 0;
-        return pct switch
-        {
-            100   => "bg-warning text-dark",
-            >= 50 => "bg-success",
-            >= 25 => "bg-info text-dark",
-            > 0   => "bg-secondary",
-            _     => "bg-danger"
-        };
-    }
+    string PointsBadgeClass(int pts) => PredictionHelper.PointsBadgeClass(pts, tournament?.PointsCalculationType ?? "Football");
 
     void TogglePredictions(int gameId)
     {
@@ -269,63 +228,14 @@ else
             expandedGameIds.Add(gameId);
     }
 
-    bool IsHockeyMode(Game match)
-    {
-        var ct = tournament?.PointsCalculationType ?? "Football";
-        if (ct == "Hockey" || ct == "Hockey2") return true;
-        if (ct == "Football2")
-            return !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
-                && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
-        return false;
-    }
+    bool IsHockeyMode(Game match) => PredictionHelper.IsHockeyMode(match, tournament?.PointsCalculationType ?? "Football");
 
-    string PredictionDistribution(List<(User user, Prediction? pred)> preds, Game match)
-    {
-        var ps = preds.Where(p => p.pred != null).Select(p => p.pred!).ToList();
-        if (!ps.Any()) return "";
-
-        if (IsHockeyMode(match))
-        {
-            int homeReg = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore && !p.PredictedIsOvertime);
-            int homeOT  = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore &&  p.PredictedIsOvertime);
-            int awayOT  = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore &&  p.PredictedIsOvertime);
-            int awayReg = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore && !p.PredictedIsOvertime);
-            return $"{homeReg} : (OT - {homeOT} : {awayOT}) : {awayReg}";
-        }
-        else
-        {
-            int homeWin = ps.Count(p => p.PredictedHomeScore > p.PredictedAwayScore);
-            int tie     = ps.Count(p => p.PredictedHomeScore == p.PredictedAwayScore);
-            int awayWin = ps.Count(p => p.PredictedHomeScore < p.PredictedAwayScore);
-            return $"{homeWin} : {tie} : {awayWin}";
-        }
-    }
+    string PredictionDistribution(List<(User user, Prediction? pred, UserGroup? userGroup)> preds, Game match) =>
+    PredictionHelper.PredictionDistribution(preds, match, tournament?.PointsCalculationType ?? "Football");
 
     // Most popular prediction(s); "Unpredictable game" if all differ
-    string MostPopular(List<(User user, Prediction? pred)> preds, Game match)
-    {
-        var ps = preds.Where(p => p.pred != null).Select(p => p.pred!).ToList();
-        if (!ps.Any()) return "";
-
-        bool hockeyMode = IsHockeyMode(match);
-
-        var groups = ps
-            .GroupBy(p => hockeyMode
-                ? $"{p.PredictedHomeScore}:{p.PredictedAwayScore}{(p.PredictedIsOvertime ? " OT" : "")}"
-                : $"{p.PredictedHomeScore}:{p.PredictedAwayScore}")
-            .Select(g => (Key: g.Key, Count: g.Count()))
-            .OrderByDescending(g => g.Count)
-            .ToList();
-
-        int maxCount = groups.First().Count;
-
-        // All different — every prediction is unique
-        if (maxCount == 1 && groups.Count > 1)
-            return "Most Popular: Unpredictable game";
-
-        var popular = groups.Where(g => g.Count == maxCount).Select(g => g.Key);
-        return $"Most Popular: {string.Join(", ", popular)}";
-    }
+    string MostPopular(List<(User user, Prediction? pred, UserGroup? userGroup)> preds, Game match) =>
+    PredictionHelper.MostPopular(preds, match, tournament?.PointsCalculationType ?? "Football");
 
     async Task AutoSaveScore(int matchId)
     {

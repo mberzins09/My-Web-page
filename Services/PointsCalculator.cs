@@ -34,9 +34,6 @@ namespace MartinsWeb.Services
             else
                 points = 0;
 
-            if (stage.Trim().Equals("Final", StringComparison.OrdinalIgnoreCase))
-                points *= 2;
-
             return points;
         }
 
@@ -81,9 +78,6 @@ namespace MartinsWeb.Services
                 points = (predOT && actualOT) ? 1 : 0;
             }
 
-            if (stage.Trim().Equals("Final", StringComparison.OrdinalIgnoreCase))
-                points *= 2;
-
             return points;
         }
 
@@ -123,7 +117,7 @@ namespace MartinsWeb.Services
             if (!actualOT && predDiff == actualDiff) points += 1;
 
             // Correct winner (no ties in hockey)
-            if (Math.Sign(predDiff) == Math.Sign(actualDiff) && predDiff != 0) points += 1;
+            if (Math.Sign(predDiff) == Math.Sign(actualDiff) && predDiff != 0) points += 2;
 
             // Correctly predicted OT (only a bonus when you checked it and it really was OT)
             if (correctOT) points += 1;
@@ -175,7 +169,7 @@ namespace MartinsWeb.Services
 
                 // Correct winner — or correct tie prediction when actual is a draw.
                 // Math.Sign handles all three outcomes: home win (+1), draw (0), away win (-1).
-                if (Math.Sign(predDiff) == Math.Sign(actualDiff)) points += 1;
+                if (Math.Sign(predDiff) == Math.Sign(actualDiff)) points += 2;
 
                 return points;
             }

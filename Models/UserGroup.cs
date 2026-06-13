@@ -9,6 +9,7 @@ namespace MartinsWeb.Models
         public int Id { get; set; }
         public string Name { get; set; } = "";
         public int TournamentId { get; set; }
+        public string? PointsCalculationType { get; set; }
         public Tournament Tournament { get; set; } = null!;
         public ICollection<UserGroupMember> Members { get; set; } = new List<UserGroupMember>();
     }

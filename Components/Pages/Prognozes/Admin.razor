@@ -380,6 +380,21 @@
                             <p class="text-white-50 mb-2" style="font-size:.85rem">
                                 Check users to include in this group. A user can be in multiple groups.
                             </p>
+
+                            @* NEW: calc type override *@
+                            <div class="d-flex align-items-center gap-2 mb-3" style="max-width:360px">
+                                <label class="mb-0 text-nowrap text-white-50" style="font-size:.85rem">Calc type:</label>
+                                <select class="form-select form-select-sm bg-dark text-white border-secondary"
+                                        value="@(ug.PointsCalculationType ?? "")"
+                                        @onchange="async e => await SetUserGroupCalcTypeAsync(ug.Id, e.Value?.ToString())">
+                                    <option value="">— inherit from tournament —</option>
+                                    <option value="Football">⚽ Football</option>
+                                    <option value="Hockey">🏒 Hockey</option>
+                                    <option value="Football2">⚽ Football2</option>
+                                    <option value="Hockey2">🏒 Hockey2</option>
+                                </select>
+                            </div>
+
                             <div class="d-flex flex-wrap gap-2">
                                 @foreach (var user in allUsers)
                                 {
@@ -423,6 +438,7 @@
     [Parameter] public string Slug { get; set; } = "";
 
     // ── State ──────────────────────────────────────────────────────────────────
+    List<PredictionsHistory>? completedHistories;
     Tournament? tournament;
     List<Tournament> allTournaments  = new();
     List<Game>? games;
@@ -711,6 +727,8 @@
 
     // ── User Competition Groups ────────────────────────────────────────────────
 
+    async Task SetUserGroupCalcTypeAsync(int groupId, string? calcType) => await GameService.SetUserGroupCalcTypeAsync(groupId, calcType);
+
     async Task CreateUserGroup()
     {
         ugError = null;
@@ -744,13 +762,16 @@
         completeError  = false;
         try
         {
-            var h = await GameService.CompleteTournamentHistoryAsync(tournament!.Id);
-            completeMessage = $"Saved to history (#{h.Id}) with {h.Entries.Count} participant(s).";
+            var results = await GameService.CompleteTournamentHistoryAsync(tournament!.Id);
+            completeMessage = results.Count == 1
+                ? $"Saved to history (#{results[0].Id}) with {results[0].Entries.Count} participant(s)."
+                : $"Saved {results.Count} group histories: " +
+                  string.Join(", ", results.Select(h => $"\"{h.TournamentName}\" ({h.Entries.Count})"));
         }
         catch (Exception ex)
         {
             completeMessage = $"Error: {ex.Message}";
-            completeError   = true;
+            completeError = true;
         }
         finally { completing = false; }
     }

@@ -17,34 +17,73 @@ else if (leaderboard == null)
 {
     <p>Loading...</p>
 }
-else if (!leaderboard.Any())
-{
-    <p>No predictions yet.</p>
-}
 else
 {
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Player</th>
-                <th>Points</th>
-                <th title="Perfectly predicted scores">⭐ Perfect</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var (entry, index) in leaderboard.Select((e, i) => (e, i + 1)))
+    @* Group filter buttons — only shown if user is in 2+ groups *@
+    @if (userGroups.Count > 1)
+    {
+        <div class="mb-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-sm @(selectedGroupId == null && isGroupFiltered ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => SelectGroup(null)">
+                My Groups (all)
+            </button>
+            @foreach (var g in userGroups)
             {
-                var perfects = perfectCounts.GetValueOrDefault(entry.User.Id, 0);
-                <tr class="@(entry.User.Id == currentUserId ? "table-warning" : "")">
-                    <td>@index</td>
-                    <td>@entry.User.Username @(entry.User.Id == currentUserId ? "👤" : "")</td>
-                    <td><strong>@entry.Points</strong></td>
-                    <td>@(perfects > 0 ? $"⭐ {perfects}" : "—")</td>
-                </tr>
+                <button class="btn btn-sm @(selectedGroupId == g.Id ? "btn-primary" : "btn-outline-primary")"
+                        @onclick="() => SelectGroup(g.Id)">
+                    @g.Name
+                </button>
             }
-        </tbody>
-    </table>
+            <button class="btn btn-sm @(!isGroupFiltered ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="ShowAll">
+                Everyone
+            </button>
+        </div>
+    }
+    else if (userGroups.Count == 1)
+    {
+        @* Single group — keep the existing simple toggle *@
+        <div class="mb-3 d-flex gap-2">
+            <button class="btn btn-sm @(isGroupFiltered ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="ShowGroup">
+                @userGroups[0].Name
+            </button>
+            <button class="btn btn-sm @(!isGroupFiltered ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="ShowAll">
+                Everyone
+            </button>
+        </div>
+    }
+
+    @if (!leaderboard.Any())
+    {
+        <p>No predictions yet.</p>
+    }
+    else
+    {
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Player</th>
+                    <th>Points</th>
+                    <th title="Perfectly predicted scores">⭐ Perfect</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var (entry, index) in leaderboard.Select((e, i) => (e, i + 1)))
+                {
+                    var perfects = perfectCounts.GetValueOrDefault(entry.User.Id, 0);
+                    <tr class="@(entry.User.Id == currentUserId ? "table-warning" : "")">
+                        <td>@index</td>
+                        <td>@entry.User.Username @(entry.User.Id == currentUserId ? "👤" : "")</td>
+                        <td><strong>@entry.Points</strong></td>
+                        <td>@(perfects > 0 ? $"⭐ {perfects}" : "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
 }
 
 @code {
@@ -53,9 +92,9 @@ else
     Tournament? tournament;
     List<(MartinsWeb.Models.User User, int Points)>? leaderboard;
     int? currentUserId;
-    List<int>? groupMateIds;
     bool isGroupFiltered = true;
-    bool hasGroup = false;
+    List<UserGroup> userGroups = new();
+    int? selectedGroupId = null;   // null = all user's groups merged
     Dictionary<int, int> perfectCounts = new();
 
     protected override async Task OnInitializedAsync()
@@ -65,12 +104,8 @@ else
 
         currentUserId = await UserContext.GetUserIdAsync();
 
-        // Check if the current user is in a competition group for this tournament
         if (currentUserId != null)
-        {
-            groupMateIds = await GameService.GetGroupMateUserIdsAsync(currentUserId.Value, tournament.Id);
-            hasGroup = groupMateIds != null;
-        }
+            userGroups = await GameService.GetUserGroupsForUserAsync(currentUserId.Value, tournament.Id);
 
         await LoadLeaderboard();
     }
@@ -78,25 +113,59 @@ else
     async Task LoadLeaderboard()
     {
         if (tournament == null) return;
-        var filterIds = (isGroupFiltered && hasGroup) ? groupMateIds : null;
-        leaderboard = await GameService.GetLeaderboardByTournamentAsync(tournament.Id, filterIds);
+
+        List<int>? filterIds = null;
+        string? calcTypeOverride = null;      // NEW
+
+        if (isGroupFiltered && userGroups.Any())
+        {
+            if (selectedGroupId != null)
+            {
+                var group = userGroups.First(g => g.Id == selectedGroupId);
+                filterIds = group.Members.Select(m => m.UserId).ToList();
+                calcTypeOverride = group.PointsCalculationType;   // NEW: null if inheriting
+            }
+            else
+            {
+                // "My Groups (all)" — merged, no single calc type override
+                filterIds = userGroups
+                    .SelectMany(g => g.Members.Select(m => m.UserId))
+                    .Distinct()
+                    .ToList();
+                // calcTypeOverride stays null → falls back to tournament default
+            }
+        }
+
+        leaderboard = await GameService.GetLeaderboardByTournamentAsync(
+            tournament.Id, filterIds, calcTypeOverride);   // CHANGED: pass override
 
         if (leaderboard != null && leaderboard.Any())
         {
             var userIds = leaderboard.Select(e => e.User.Id).ToList();
-            perfectCounts = await GameService.GetPerfectCountsAsync(tournament.Id, userIds, tournament.PointsCalculationType);
+            var calcType = calcTypeOverride ?? tournament.PointsCalculationType;  // NEW
+            perfectCounts = await GameService.GetPerfectCountsAsync(
+                tournament.Id, userIds, calcType);          // CHANGED: use resolved type
         }
+    }
+
+    async Task SelectGroup(int? groupId)
+    {
+        selectedGroupId = groupId;
+        isGroupFiltered = true;
+        await LoadLeaderboard();
     }
 
     async Task ShowAll()
     {
         isGroupFiltered = false;
+        selectedGroupId = null;
         await LoadLeaderboard();
     }
 
     async Task ShowGroup()
     {
         isGroupFiltered = true;
+        selectedGroupId = null;
         await LoadLeaderboard();
     }
 }

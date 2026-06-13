@@ -335,9 +335,10 @@ namespace MartinsWeb.Services
         /// If filterUserIds is provided, only those users are included (for group filtering).
         /// </summary>
         public async Task<List<(User User, int Points)>> GetLeaderboardByTournamentAsync(
-            int tournamentId, List<int>? filterUserIds = null)
+            int tournamentId, List<int>? filterUserIds = null, string? calcTypeOverride = null)
         {
             var tournament = await _db.Tournaments.FindAsync(tournamentId);
+            var calcType = calcTypeOverride ?? tournament?.PointsCalculationType ?? "Football";  // NEW
 
             var query = _db.Users
                 .Include(u => u.Predictions)
@@ -361,7 +362,7 @@ namespace MartinsWeb.Services
                                 p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
                                 p.Game.HomeScore.Value, p.Game.AwayScore.Value, p.Game.IsOvertime,
                                 p.Game.Stage,
-                                tournament?.PointsCalculationType ?? "Football");
+                                calcType);                // CHANGED: was tournament?.PointsCalculationType
                         })
                 ))
                 .OrderByDescending(x => x.Points)
@@ -491,32 +492,65 @@ namespace MartinsWeb.Services
         /// Calculates points for every user who made predictions in the tournament,
         /// creates a PredictionsHistory record, and returns it.
         /// </summary>
-        public async Task<PredictionsHistory> CompleteTournamentHistoryAsync(int tournamentId)
+        public async Task<List<PredictionsHistory>> CompleteTournamentHistoryAsync(int tournamentId)
         {
-            var tournament = await _db.Tournaments.FindAsync(tournamentId)
-                             ?? throw new InvalidOperationException("Tournament not found.");
+            var tournament = await _db.Tournaments.FindAsync(tournamentId) ?? throw new InvalidOperationException("Tournament not found.");
 
-            var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId);
+            var userGroups = await GetUserGroupsByTournamentAsync(tournamentId);
+            var results = new List<PredictionsHistory>();
 
-            var history = new PredictionsHistory
+            if (userGroups.Any())
             {
-                TournamentId   = tournamentId,
-                TournamentName = tournament.Name,
-                CompletedAt    = DateTime.UtcNow,
-                Entries        = leaderboard
-                    .Where(x => x.Points > 0)
-                    .Select(x => new PredictionsHistoryEntry
-                    {
-                        UserId     = x.User.Id,
-                        PlayerName = x.User.Username,
-                        Points     = x.Points
-                    })
-                    .ToList()
-            };
+                foreach (var ug in userGroups)
+                {
+                    var memberIds = ug.Members.Select(m => m.UserId).ToList();
+                    var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId, memberIds);
 
-            _db.PredictionsHistories.Add(history);
+                    var history = new PredictionsHistory
+                    {
+                        TournamentId = tournamentId,
+                        TournamentName = $"{tournament.Name} – {ug.Name}",
+                        CompletedAt = DateTime.UtcNow,
+                        Entries = leaderboard
+                            .Where(x => x.Points > 0)
+                            .Select(x => new PredictionsHistoryEntry
+                            {
+                                UserId = x.User.Id,
+                                PlayerName = x.User.Username,
+                                Points = x.Points
+                            })
+                            .ToList()
+                    };
+
+                    _db.PredictionsHistories.Add(history);
+                    results.Add(history);
+                }
+            }
+            else
+            {
+                // No user groups — old behaviour, one entry for everyone
+                var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId);
+                var history = new PredictionsHistory
+                {
+                    TournamentId = tournamentId,
+                    TournamentName = tournament.Name,
+                    CompletedAt = DateTime.UtcNow,
+                    Entries = leaderboard
+                        .Where(x => x.Points > 0)
+                        .Select(x => new PredictionsHistoryEntry
+                        {
+                            UserId = x.User.Id,
+                            PlayerName = x.User.Username,
+                            Points = x.Points
+                        })
+                        .ToList()
+                };
+                _db.PredictionsHistories.Add(history);
+                results.Add(history);
+            }
+
             await _db.SaveChangesAsync();
-            return history;
+            return results;
         }
 
         /// <summary>
@@ -554,6 +588,34 @@ namespace MartinsWeb.Services
         {
             var h = await _db.PredictionsHistories.FindAsync(historyId);
             if (h != null) { _db.PredictionsHistories.Remove(h); await _db.SaveChangesAsync(); }
+        }
+
+        /// <summary>
+        /// Returns each UserGroup the given user belongs to for this tournament,
+        /// with all member user IDs. Used for per-group leaderboard filtering.
+        /// </summary>
+        public async Task<List<UserGroup>> GetUserGroupsForUserAsync(int userId, int tournamentId)
+        {
+            var groupIds = await _db.UserGroupMembers
+                .Where(m => m.UserId == userId && m.UserGroup.TournamentId == tournamentId)
+                .Select(m => m.UserGroupId)
+                .ToListAsync();
+
+            if (!groupIds.Any()) return new List<UserGroup>();
+
+            return await _db.UserGroups
+                .Include(g => g.Members)
+                .Where(g => groupIds.Contains(g.Id))
+                .OrderBy(g => g.Name)
+                .ToListAsync();
+        }
+
+        public async Task SetUserGroupCalcTypeAsync(int groupId, string? calcType)
+        {
+            var group = await _db.UserGroups.FindAsync(groupId);
+            if (group == null) return;
+            group.PointsCalculationType = calcType;
+            await _db.SaveChangesAsync();
         }
     }
 }
