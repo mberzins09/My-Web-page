@@ -23,10 +23,6 @@ else
     @if (userGroups.Count > 1)
     {
         <div class="mb-3 d-flex flex-wrap gap-2">
-            <button class="btn btn-sm @(selectedGroupId == null && isGroupFiltered ? "btn-primary" : "btn-outline-primary")"
-                    @onclick="() => SelectGroup(null)">
-                My Groups (all)
-            </button>
             @foreach (var g in userGroups)
             {
                 <button class="btn btn-sm @(selectedGroupId == g.Id ? "btn-primary" : "btn-outline-primary")"
@@ -34,10 +30,6 @@ else
                     @g.Name
                 </button>
             }
-            <button class="btn btn-sm @(!isGroupFiltered ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="ShowAll">
-                Everyone
-            </button>
         </div>
     }
     else if (userGroups.Count == 1)

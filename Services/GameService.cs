@@ -76,18 +76,26 @@ namespace MartinsWeb.Services
             await _db.SaveChangesAsync();
         }
 
-        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null)
+        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null, bool saveMainScore = true, bool saveFullTimeScore = false)
         {
             var match = await _db.Games.FindAsync(gameId);
-            if (match != null)
+            if (match == null)
+                return;
+
+            if (saveMainScore)
             {
-                match.HomeScore  = homeScore;
-                match.AwayScore  = awayScore;
+                match.HomeScore = homeScore;
+                match.AwayScore = awayScore;
                 match.IsOvertime = isOvertime;
-                if (homeFullTime != null) match.HomeFullTimeScore = homeFullTime;
-                if (awayFullTime != null) match.AwayFullTimeScore = awayFullTime;
-                await _db.SaveChangesAsync();
             }
+
+            if (saveFullTimeScore)
+            {
+                match.HomeFullTimeScore = homeFullTime;
+                match.AwayFullTimeScore = awayFullTime;
+            }
+
+            await _db.SaveChangesAsync();
         }
 
         public async Task DeleteMatchAsync(int gameId)
@@ -299,17 +307,24 @@ namespace MartinsWeb.Services
 
         // ── Predictions ────────────────────────────────────────────────────────
 
-        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null)
+        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null, bool saveMainScore = true, bool saveFullTimeScore = false)
         {
             var existing = await _db.Predictions.FirstOrDefaultAsync(p => p.UserId == userId && p.GameId == gameId);
 
             if (existing != null)
             {
-                existing.PredictedHomeScore  = homeScore;
-                existing.PredictedAwayScore  = awayScore;
-                existing.PredictedIsOvertime = isOvertime;
-                existing.PredictedHomeFullTime = homeFullTime;   // NEW
-                existing.PredictedAwayFullTime = awayFullTime;   // NEW
+                if (saveMainScore)
+                {
+                    existing.PredictedHomeScore  = homeScore;
+                    existing.PredictedAwayScore  = awayScore;
+                    existing.PredictedIsOvertime = isOvertime;
+                }
+
+                if (saveFullTimeScore)
+                {
+                    existing.PredictedHomeFullTime = homeFullTime;
+                    existing.PredictedAwayFullTime = awayFullTime;
+                }
             }
             else
             {
