@@ -12,6 +12,10 @@ namespace MartinsWeb.Models
         public int PredictedHomeScore { get; set; }
         public int PredictedAwayScore { get; set; }
         public bool PredictedIsOvertime { get; set; }   // Hockey: did user predict overtime?
+
+        // NEW: full-time prediction (only filled when user is in conflicting groups)
+        public int? PredictedHomeFullTime { get; set; }
+        public int? PredictedAwayFullTime { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

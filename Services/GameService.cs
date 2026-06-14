@@ -76,7 +76,7 @@ namespace MartinsWeb.Services
             await _db.SaveChangesAsync();
         }
 
-        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false)
+        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null)
         {
             var match = await _db.Games.FindAsync(gameId);
             if (match != null)
@@ -84,6 +84,8 @@ namespace MartinsWeb.Services
                 match.HomeScore  = homeScore;
                 match.AwayScore  = awayScore;
                 match.IsOvertime = isOvertime;
+                if (homeFullTime != null) match.HomeFullTimeScore = homeFullTime;
+                if (awayFullTime != null) match.AwayFullTimeScore = awayFullTime;
                 await _db.SaveChangesAsync();
             }
         }
@@ -297,16 +299,17 @@ namespace MartinsWeb.Services
 
         // ── Predictions ────────────────────────────────────────────────────────
 
-        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false)
+        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null)
         {
-            var existing = await _db.Predictions
-                .FirstOrDefaultAsync(p => p.UserId == userId && p.GameId == gameId);
+            var existing = await _db.Predictions.FirstOrDefaultAsync(p => p.UserId == userId && p.GameId == gameId);
 
             if (existing != null)
             {
                 existing.PredictedHomeScore  = homeScore;
                 existing.PredictedAwayScore  = awayScore;
                 existing.PredictedIsOvertime = isOvertime;
+                existing.PredictedHomeFullTime = homeFullTime;   // NEW
+                existing.PredictedAwayFullTime = awayFullTime;   // NEW
             }
             else
             {
@@ -316,7 +319,9 @@ namespace MartinsWeb.Services
                     GameId               = gameId,
                     PredictedHomeScore   = homeScore,
                     PredictedAwayScore   = awayScore,
-                    PredictedIsOvertime  = isOvertime
+                    PredictedIsOvertime  = isOvertime,
+                    PredictedHomeFullTime = homeFullTime,   // NEW
+                    PredictedAwayFullTime = awayFullTime    // NEW
                 });
             }
             await _db.SaveChangesAsync();
@@ -362,7 +367,7 @@ namespace MartinsWeb.Services
                                 p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
                                 p.Game.HomeScore.Value, p.Game.AwayScore.Value, p.Game.IsOvertime,
                                 p.Game.Stage,
-                                calcType);                // CHANGED: was tournament?.PointsCalculationType
+                                calcType, p.Game.HomeFullTimeScore, p.Game.AwayFullTimeScore);
                         })
                 ))
                 .OrderByDescending(x => x.Points)
@@ -504,7 +509,8 @@ namespace MartinsWeb.Services
                 foreach (var ug in userGroups)
                 {
                     var memberIds = ug.Members.Select(m => m.UserId).ToList();
-                    var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId, memberIds);
+                    var calcType = ug.PointsCalculationType ?? tournament.PointsCalculationType;
+                    var leaderboard = await GetLeaderboardByTournamentAsync(tournamentId, memberIds, calcType);
 
                     var history = new PredictionsHistory
                     {

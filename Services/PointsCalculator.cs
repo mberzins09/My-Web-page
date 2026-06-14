@@ -9,19 +9,36 @@ namespace MartinsWeb.Services
         public static int Calculate(
             int predHome, int predAway, bool predOT,
             int actualHome, int actualAway, bool actualOT,
-            string stage, string calculationType = "Football")
-            => calculationType switch
+            string stage, string calculationType = "Football",
+            int? actualHomeFullTime = null, int? actualAwayFullTime = null,
+            int? predHomeFullTime = null, int? predAwayFullTime = null)
+        {
+            bool isPlayoff = !stage.Contains("group", StringComparison.OrdinalIgnoreCase)
+                  && !stage.Contains("grupa", StringComparison.OrdinalIgnoreCase);
+
+            // For Football/Football3 playoffs: compare predicted FT vs actual FT
+            if (isPlayoff && (calculationType == "Football" || calculationType == "Football3") && actualHomeFullTime != null && actualAwayFullTime != null)
             {
-                var t when t.Equals("Hockey",    StringComparison.OrdinalIgnoreCase)
+                int ph = predHomeFullTime ?? predHome;   // fallback to main pred if FT not filled
+                int pa = predAwayFullTime ?? predAway;
+                return calculationType == "Football3"
+                    ? CalculateFootball3(ph, pa, actualHomeFullTime.Value, actualAwayFullTime.Value, stage)
+                    : CalculateFootball(ph, pa, actualHomeFullTime.Value, actualAwayFullTime.Value, stage);
+            }
+
+            return calculationType switch
+            {
+                var t when t.Equals("Hockey", StringComparison.OrdinalIgnoreCase)
                     => CalculateHockey(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
-                var t when t.Equals("Hockey2",   StringComparison.OrdinalIgnoreCase)
+                var t when t.Equals("Hockey2", StringComparison.OrdinalIgnoreCase)
                     => CalculateHockey2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
                 var t when t.Equals("Football2", StringComparison.OrdinalIgnoreCase)
                     => CalculateFootball2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
                 var t when t.Equals("Football3", StringComparison.OrdinalIgnoreCase)
                     => CalculateFootball3(predHome, predAway, actualHome, actualAway, stage),
-                _   => CalculateFootball(predHome, predAway, actualHome, actualAway, stage)
+                _ => CalculateFootball(predHome, predAway, actualHome, actualAway, stage)
             };
+        }
 
         public static int CalculateFootball(int predHome, int predAway, int actualHome, int actualAway, string stage)
         {

@@ -117,5 +117,36 @@ namespace MartinsWeb.Services
         }
 
         public static string ResolveCalcType(UserGroup? group, Tournament tournament) => group?.PointsCalculationType ?? tournament.PointsCalculationType;
+
+        // Returns true if ANY group in this tournament uses Football or Football3
+        // (meaning the admin needs to input full-time score separately)
+        public static bool NeedsFullTimeScore(List<UserGroup> groups, Tournament tournament)
+        {
+            var allCalcTypes = groups
+                .Select(g => g.PointsCalculationType ?? tournament.PointsCalculationType)
+                .Append(tournament.PointsCalculationType)
+                .Distinct();
+
+            return allCalcTypes.Any(t => t == "Football" || t == "Football3");
+        }
+
+        public static bool IsPlayoffStage(string stage) => !stage.Contains("group", StringComparison.OrdinalIgnoreCase) && !stage.Contains("grupa", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Returns true if user's groups contain at least one type that uses OT in playoffs
+        /// (Football2, Hockey, Hockey2) AND at least one that doesn't (Football, Football3).
+        /// Only relevant for playoff stages.
+        /// </summary>
+        public static bool HasConflictingCalcTypes(List<UserGroup> userGroups, Tournament tournament)
+        {
+            var types = userGroups
+                .Select(g => g.PointsCalculationType ?? tournament.PointsCalculationType)
+                .Distinct()
+                .ToList();
+
+            bool hasOtType = types.Any(t => t == "Football2" || t == "Hockey" || t == "Hockey2");
+            bool hasFtType = types.Any(t => t == "Football" || t == "Football3");
+            return hasOtType && hasFtType;
+        }
     }
 }

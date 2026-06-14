@@ -13,6 +13,11 @@ namespace MartinsWeb.Models
         public int? AwayScore { get; set; }
         public bool IsOvertime { get; set; }   // Hockey: was the result decided in overtime?
 
+        // NEW: full-time score before OT (only relevant for playoff games
+        // where some groups predict only full time, e.g. Football / Football3)
+        public int? HomeFullTimeScore { get; set; }
+        public int? AwayFullTimeScore { get; set; }
+
         // Set when game was auto-generated from a TournamentGroup (batch insert)
         public int? GroupId { get; set; }
         public TournamentGroup? TournamentGroup { get; set; }
