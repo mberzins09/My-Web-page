@@ -300,7 +300,10 @@
             return;
         }
         selectedUserPredictions = await GameService.GetUserPredictionsByTournamentAsync(selectedUserId, tournament.Id);
-        selectedUserGroup = allUserGroups.FirstOrDefault(g => g.Members.Any(m => m.UserId == selectedUserId));
+        selectedUserGroup = allUserGroups.FirstOrDefault(g =>
+        g.Members.Any(m => m.UserId == selectedUserId) &&
+        g.Members.Any(m => m.UserId == currentUserId)) 
+        ?? allUserGroups.FirstOrDefault(g => g.Members.Any(m => m.UserId == selectedUserId));
     }
 
     int StageOrder(string stage) => PredictionHelper.StageOrder(stage);

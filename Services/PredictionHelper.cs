@@ -37,9 +37,7 @@ namespace MartinsWeb.Services
 
         public static bool IsHockeyMode(Game match, string calcType) =>
             calcType == "Hockey" || calcType == "Hockey2" ||
-            (calcType == "Football2"
-                && !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
-                && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase));
+            (calcType == "Football2" && !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase) && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase));
 
         // Football2 playoff and Hockey types: OT allowed regardless of goal diff
         // Football (classic): OT never shown
@@ -48,8 +46,7 @@ namespace MartinsWeb.Services
             if (calcType == "Hockey" || calcType == "Hockey2")
                 return Math.Abs(homeDiff) == 1;          // hockey: only 1-goal diff
             if (calcType == "Football2")
-                return !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase)
-                    && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
+                return !match.Stage.Contains("grupa", StringComparison.OrdinalIgnoreCase) && !match.Stage.Contains("group", StringComparison.OrdinalIgnoreCase);
             return false;                                  // Football: never
         }
 
@@ -59,6 +56,7 @@ namespace MartinsWeb.Services
             {
                 "Hockey" => 10,
                 "Hockey2" or "Football2" => 7,
+                "Football3" => 5,
                 "Football" => 3,
                 _ => 6
             };

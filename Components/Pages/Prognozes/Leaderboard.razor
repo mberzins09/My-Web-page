@@ -48,10 +48,6 @@ else
                     @onclick="ShowGroup">
                 @userGroups[0].Name
             </button>
-            <button class="btn btn-sm @(!isGroupFiltered ? "btn-primary" : "btn-outline-secondary")"
-                    @onclick="ShowAll">
-                Everyone
-            </button>
         </div>
     }
 
@@ -96,6 +92,7 @@ else
     List<UserGroup> userGroups = new();
     int? selectedGroupId = null;   // null = all user's groups merged
     Dictionary<int, int> perfectCounts = new();
+    UserGroup? currentUserGroup;
 
     protected override async Task OnInitializedAsync()
     {
@@ -107,6 +104,17 @@ else
         if (currentUserId != null)
             userGroups = await GameService.GetUserGroupsForUserAsync(currentUserId.Value, tournament.Id);
 
+        // Default selectedGroupId to the user's only group if they have exactly one
+        if (userGroups.Count == 1)
+        {
+            selectedGroupId = userGroups[0].Id;
+            currentUserGroup = userGroups[0];
+        }
+        else
+        {
+            currentUserGroup = null; // multiple groups — no auto-select
+        }
+
         await LoadLeaderboard();
     }
 
@@ -115,7 +123,7 @@ else
         if (tournament == null) return;
 
         List<int>? filterIds = null;
-        string? calcTypeOverride = null;      // NEW
+        string? calcTypeOverride = null;
 
         if (isGroupFiltered && userGroups.Any())
         {
@@ -123,28 +131,28 @@ else
             {
                 var group = userGroups.First(g => g.Id == selectedGroupId);
                 filterIds = group.Members.Select(m => m.UserId).ToList();
-                calcTypeOverride = group.PointsCalculationType;   // NEW: null if inheriting
+                calcTypeOverride = group.PointsCalculationType;
             }
             else
             {
-                // "My Groups (all)" — merged, no single calc type override
+                // "My Groups (all)" merged view
                 filterIds = userGroups
                     .SelectMany(g => g.Members.Select(m => m.UserId))
                     .Distinct()
                     .ToList();
-                // calcTypeOverride stays null → falls back to tournament default
+                // no single calcType override — falls back to tournament default
             }
         }
 
         leaderboard = await GameService.GetLeaderboardByTournamentAsync(
-            tournament.Id, filterIds, calcTypeOverride);   // CHANGED: pass override
+            tournament.Id, filterIds, calcTypeOverride);
 
         if (leaderboard != null && leaderboard.Any())
         {
             var userIds = leaderboard.Select(e => e.User.Id).ToList();
-            var calcType = calcTypeOverride ?? tournament.PointsCalculationType;  // NEW
+            var calcType = calcTypeOverride ?? tournament.PointsCalculationType;
             perfectCounts = await GameService.GetPerfectCountsAsync(
-                tournament.Id, userIds, calcType);          // CHANGED: use resolved type
+                tournament.Id, userIds, calcType);
         }
     }
 

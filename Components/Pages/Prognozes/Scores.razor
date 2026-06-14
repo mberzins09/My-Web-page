@@ -160,6 +160,7 @@ else
     HashSet<int> justSaved      = new();
     HashSet<int> expandedGameIds = new();
     string?      selectedStage;
+    UserGroup? currentUserGroup;
 
     // userId -> their predictions for this tournament (preloaded at init)
     List<(User user, Prediction? pred, UserGroup? group)> allUserPredictions = new();
@@ -199,7 +200,9 @@ else
             var groupMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
             foreach (var user in groupMates)
             {
-                var userGroup = userGroupsList.FirstOrDefault(g => g.Members.Any(m => m.UserId == user.Id));
+                var userGroup = userGroupsList.FirstOrDefault(g =>
+                                                g.Members.Any(m => m.UserId == user.Id) &&
+                                                g.Members.Any(m => m.UserId == currentUserId.Value));
                 var preds = await GameService.GetUserPredictionsByTournamentAsync(user.Id, tournament.Id);
                 foreach (var m in matches)
                 {
@@ -207,6 +210,9 @@ else
                     allUserPredictions.Add((user, pred, userGroup));
                 }
             }
+
+            var currentUserGroups = await GameService.GetUserGroupsForUserAsync(currentUserId.Value, tournament.Id);
+            currentUserGroup = currentUserGroups.FirstOrDefault(); // single group case is fine here
         }
     }
 
@@ -220,7 +226,7 @@ else
             g.Stage, calcType);
     }
 
-    string PointsBadgeClass(int pts) => PredictionHelper.PointsBadgeClass(pts, tournament?.PointsCalculationType ?? "Football");
+    string PointsBadgeClass(int pts) => PredictionHelper.PointsBadgeClass(pts, PredictionHelper.ResolveCalcType(currentUserGroup, tournament!));
 
     void TogglePredictions(int gameId)
     {

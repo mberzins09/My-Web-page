@@ -18,6 +18,8 @@ namespace MartinsWeb.Services
                     => CalculateHockey2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
                 var t when t.Equals("Football2", StringComparison.OrdinalIgnoreCase)
                     => CalculateFootball2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
+                var t when t.Equals("Football3", StringComparison.OrdinalIgnoreCase)
+                    => CalculateFootball3(predHome, predAway, actualHome, actualAway, stage),
                 _   => CalculateFootball(predHome, predAway, actualHome, actualAway, stage)
             };
 
@@ -29,6 +31,22 @@ namespace MartinsWeb.Services
                 points = 3;
             else if ((predHome - predAway) == (actualHome - actualAway))
                 points = 2;
+            else if (Math.Sign(predHome - predAway) == Math.Sign(actualHome - actualAway))
+                points = 1;
+            else
+                points = 0;
+
+            return points;
+        }
+
+        public static int CalculateFootball3(int predHome, int predAway, int actualHome, int actualAway, string stage)
+        {
+            int points = 0;
+
+            if (predHome == actualHome && predAway == actualAway)
+                points = 5;
+            else if ((predHome - predAway) == (actualHome - actualAway))
+                points = 3;
             else if (Math.Sign(predHome - predAway) == Math.Sign(actualHome - actualAway))
                 points = 1;
             else
