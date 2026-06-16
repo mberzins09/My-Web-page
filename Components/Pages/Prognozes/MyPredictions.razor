@@ -43,19 +43,14 @@
 
             @if (currentUserGroups.Count > 1)
             {
-                <div class="mb-3 d-flex align-items-center gap-2">
-                    <label class="text-white-50 mb-0" style="font-size:.85rem">View points as:</label>
-                    <select class="form-select form-select-sm bg-dark text-white border-secondary"
-                            style="max-width:220px"
-                            @onchange="OnViewGroupChanged">
-                        <option value="">— tournament default —</option>
-                        @foreach (var g in currentUserGroups)
-                        {
-                            <option value="@g.Id" selected="@(userGroup?.Id == g.Id)">
-                                @g.Name (@(g.PointsCalculationType ?? tournament!.PointsCalculationType))
-                            </option>
-                        }
-                    </select>
+                <div class="mb-3 d-flex flex-wrap gap-2">
+                    @foreach (var g in currentUserGroups)
+                    {
+                        <button class="btn btn-sm @(userGroup?.Id == g.Id ? "btn-primary" : "btn-outline-primary")"
+                                @onclick="() => { userGroup = g; }">
+                            @g.Name (@(g.PointsCalculationType ?? tournament!.PointsCalculationType))
+                        </button>
+                    }
                 </div>
             }
 
@@ -349,7 +344,7 @@
         if (userId != null)
         {
             currentUserGroups = await GameService.GetUserGroupsForUserAsync(userId.Value, tournament.Id);
-            userGroup = currentUserGroups.Count == 1 ? currentUserGroups[0] : null;
+            userGroup = currentUserGroups.FirstOrDefault();
 
             predictions = await GameService.GetUserPredictionsByTournamentAsync(userId.Value, tournament.Id);
             foreach (var pred in predictions)
@@ -373,12 +368,6 @@
                 Away       = pred?.PredictedAwayScore ?? 0,
                 IsOvertime = pred?.PredictedIsOvertime ?? false
             };
-    }
-
-    void OnViewGroupChanged(ChangeEventArgs e)
-    {
-        int.TryParse(e.Value?.ToString(), out var id);
-        userGroup = id == 0 ? null : currentUserGroups.FirstOrDefault(g => g.Id == id);
     }
 
     // ftMode = true  → saves to PredictedHomeFullTime / PredictedAwayFullTime
