@@ -86,9 +86,71 @@
                         <div class="tt-card pred-card">
                             <div class="pred-card-top">
                                 <span class="pred-date">@game.GameDate.ToLocalTime().ToString("MMM dd HH:mm")</span>
-                                <span class="pred-match">@game.HomeTeam vs @game.AwayTeam</span>
+                                <span class="pred-match">
+                                    @game.HomeTeam vs @game.AwayTeam
+                                    <button class="btn btn-link btn-sm p-0 ms-1 text-white-50"
+                                            style="font-size:.75rem; vertical-align:middle; line-height:1"
+                                            title="Show team history"
+                                            @onclick="() => ToggleTeamHistory(game.Id)">
+                                        @(expandedTeamGameIds.Contains(game.Id) ? "▲" : "▼")
+                                    </button>
+                                </span>
                                 <span class="pred-stage">@game.Stage</span>
                             </div>
+                            @if (expandedTeamGameIds.Contains(game.Id))
+                            {
+                                var homeHistory = GetTeamHistory(game.HomeTeam);
+                                var awayHistory = GetTeamHistory(game.AwayTeam);
+                                var maxRows = Math.Max(homeHistory.Count, awayHistory.Count);
+
+                                @if (maxRows == 0)
+                                {
+                                    <div class="px-2 pb-1" style="font-size:.78rem; color:#888;">
+                                        No played games yet.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="px-2 pb-2" style="font-size:.78rem;">
+                                        @* Header row with team names *@
+                                        <div class="d-flex" style="gap:4px; margin-bottom:2px;">
+                                            <div style="flex:1; font-weight:600; color:#ccc;">@game.HomeTeam</div>
+                                            <div style="flex:1; font-weight:600; color:#ccc; text-align:right;">@game.AwayTeam</div>
+                                        </div>
+                                        @* One row per game slot *@
+                                        @for (int i = 0; i < maxRows; i++)
+                                        {
+                                            <div class="d-flex align-items-center" style="gap:4px; padding:1px 0; border-top:1px solid #333;">
+                                                @* Home team's i-th game *@
+                                                @if (i < homeHistory.Count)
+                                                {
+                                                    var h = homeHistory[i];
+                                                    <div style="flex:1;" class="@HistoryResultClass(h.TeamGoals, h.OppGoals)">
+                                                        vs @h.Opponent
+                                                        <strong>@h.TeamGoals:@h.OppGoals@(h.OT ? " OT" : "")</strong>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div style="flex:1;"></div>
+                                                }
+                                                @* Away team's i-th game *@
+                                                @if (i < awayHistory.Count)
+                                                {
+                                                    var a = awayHistory[i];
+                                                    <div style="flex:1; text-align:right;" class="@HistoryResultClass(a.TeamGoals, a.OppGoals)">
+                                                        <strong>@a.TeamGoals:@a.OppGoals@(a.OT ? " OT" : "")</strong> vs @a.Opponent
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div style="flex:1;"></div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }
                             <div class="pred-card-bottom">
                                 <span class="pred-input-col">
                                     @if (!isPast)
@@ -304,6 +366,40 @@
         .ToList() ?? new();
 
     List<Game> filteredGames => PredictionHelper.FilteredGames(games, selectedStage);
+
+    HashSet<int> expandedTeamGameIds = new();   // tracks which game cards have team history expanded
+
+    void ToggleTeamHistory(int gameId)
+    {
+        if (!expandedTeamGameIds.Remove(gameId))
+            expandedTeamGameIds.Add(gameId);
+    }
+
+    // Returns all played games for a team in this tournament, ordered by date
+    // Result is always from that team's perspective (their goals first)
+    List<(string Opponent, int TeamGoals, int OppGoals, bool OT)> GetTeamHistory(string team)
+    {
+        if (games == null) return new();
+        return games
+            .Where(g =>
+                (g.HomeTeam == team || g.AwayTeam == team) &&
+                g.HomeScore != null && g.AwayScore != null &&
+                g.GameDate < PredictionHelper.LatviaTime)
+            .OrderBy(g => g.GameDate)
+            .Select(g =>
+            {
+                bool isHome = g.HomeTeam == team;
+                string opp = isHome ? g.AwayTeam : g.HomeTeam;
+                int teamGoals = isHome ? g.HomeScore!.Value : g.AwayScore!.Value;
+                int oppGoals = isHome ? g.AwayScore!.Value : g.HomeScore!.Value;
+                return (opp, teamGoals, oppGoals, g.IsOvertime);
+            })
+            .ToList();
+    }
+
+    string HistoryResultClass(int teamGoals, int oppGoals) =>
+        teamGoals > oppGoals ? "text-success" :
+        teamGoals < oppGoals ? "text-danger" : "text-warning";
 
     int totalPoints => predictions
         .Where(p => p.Game?.HomeScore != null && p.Game?.AwayScore != null)
