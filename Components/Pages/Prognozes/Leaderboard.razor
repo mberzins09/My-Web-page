@@ -97,7 +97,7 @@ else
             userGroups = await GameService.GetUserGroupsForUserAsync(currentUserId.Value, tournament.Id);
 
         // Default selectedGroupId to the user's only group if they have exactly one
-        if (userGroups.Count == 1)
+        if (userGroups.Count >= 1)
         {
             selectedGroupId = userGroups[0].Id;
             currentUserGroup = userGroups[0];

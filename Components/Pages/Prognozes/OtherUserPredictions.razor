@@ -50,25 +50,6 @@
                     </div>
                 </div>
 
-                @* Calc type view selector — only shown when viewer is in 2+ groups *@
-                @if (currentUserGroups.Count > 1)
-                {
-                    <div>
-                        <label class="form-label mb-1 small">View points as</label>
-                        <select class="form-select form-select-sm bg-dark text-white border-secondary"
-                                style="min-width:200px"
-                                @onchange="OnViewGroupChanged">
-                            <option value="">— tournament default —</option>
-                            @foreach (var g in currentUserGroups)
-                            {
-                                <option value="@g.Id" selected="@(selectedUserGroup?.Id == g.Id)">
-                                    @g.Name (@(g.PointsCalculationType ?? tournament!.PointsCalculationType))
-                                </option>
-                            }
-                        </select>
-                    </div>
-                }
-
                 @* User filter *@
                 <div>
                     <label class="form-label mb-1 small">Player</label>
@@ -372,15 +353,5 @@
             }
             return new TeamStanding(team, pts, gf - ga, gf);
         }).ToList();
-    }
-
-    void OnViewGroupChanged(ChangeEventArgs e)
-    {
-        int.TryParse(e.Value?.ToString(), out var id);
-        // Override the resolved calc type for the viewer's chosen group
-        // but keep selectedUserGroup logic for user switching intact
-        selectedUserGroup = id == 0
-            ? allUserGroups.FirstOrDefault(g => g.Members.Any(m => m.UserId == selectedUserId))
-            : currentUserGroups.FirstOrDefault(g => g.Id == id);
     }
 }
