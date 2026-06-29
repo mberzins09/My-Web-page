@@ -165,7 +165,7 @@ namespace MartinsWeb.Services
                     }
                     catch (Exception ex)
                     {
-                        progress($"  ⚠️ Error for event {ev.id}: {ex.Message}");
+                        progress($"⚠️ Error for event {ev.id}: {ex}");
                     }
                 }
 
@@ -629,96 +629,64 @@ namespace MartinsWeb.Services
 
         private static async Task<TtRankedPlayer> GetRankedPlayerAsync(SqliteConnection con, int playerId)
         {
-            // players.key_name
-            var keyCmd = con.CreateCommand();
-            keyCmd.CommandText = @"
-        SELECT key_name
-        FROM players
-        WHERE id = $id";
-
-            keyCmd.Parameters.AddWithValue("$id", playerId);
-
-            var keyName = (await keyCmd.ExecuteScalarAsync())?.ToString() ?? "";
-
-            if (string.IsNullOrWhiteSpace(keyName))
-            {
-                return new TtRankedPlayer();
-            }
-
-            // PlayerDB by same key
             var cmd = con.CreateCommand();
-            cmd.CommandText = @"SELECT KeyName, Place, Points, PointsWithBonus, BirthDate, Name, Surname
-                                FROM PlayerDB WHERE KeyName = $k LIMIT 1";
+            cmd.CommandText = @"
+        SELECT
+            KeyName,
+            Place,
+            Points,
+            PointsWithBonus,
+            BirthDate,
+            Name,
+            Surname
+        FROM PlayerDB
+        WHERE Id = $id
+        LIMIT 1";
 
-            cmd.Parameters.AddWithValue("$k", keyName);
+            cmd.Parameters.AddWithValue("$id", playerId);
 
             await using var r = await cmd.ExecuteReaderAsync();
 
             if (!await r.ReadAsync())
-            {
-                return new TtRankedPlayer
-                {
-                    KeyName = keyName
-                };
-            }
+                return new TtRankedPlayer();
 
             return new TtRankedPlayer
             {
-                KeyName = r["KeyName"]?.ToString() ?? "",
-                Place = Convert.ToInt32(r["Place"] ?? 0),
-                Points = Convert.ToInt32(r["Points"] ?? 0),
-                PointsWithBonus = Convert.ToInt32(r["PointsWithBonus"] ?? 0),
-                BirthDate = r["BirthDate"]?.ToString() ?? "",
-                Name = r["Name"]?.ToString() ?? "",
-                Surname = r["Surname"]?.ToString() ?? ""
+                KeyName = r["KeyName"] == DBNull.Value ? "" : r["KeyName"].ToString()!,
+                Place = r["Place"] == DBNull.Value ? 0 : Convert.ToInt32(r["Place"]),
+                Points = r["Points"] == DBNull.Value ? 0 : Convert.ToInt32(r["Points"]),
+                PointsWithBonus = r["PointsWithBonus"] == DBNull.Value ? 0 : Convert.ToInt32(r["PointsWithBonus"]),
+                BirthDate = r["BirthDate"] == DBNull.Value ? "" : r["BirthDate"].ToString()!,
+                Name = r["Name"] == DBNull.Value ? "" : r["Name"].ToString()!,
+                Surname = r["Surname"] == DBNull.Value ? "" : r["Surname"].ToString()!
             };
         }
 
         private static async Task<int> GetOrCreatePlayerAsync(
-            SqliteConnection con, string name, string surname)
+    SqliteConnection con, string name, string surname)
         {
             string key = NormalizeKey(name + surname);
 
-            // ── players table ────────────────────────────────────────────
-            var sel = con.CreateCommand();
-            sel.CommandText = "SELECT id FROM players WHERE key_name = $k";
-            sel.Parameters.AddWithValue("$k", key);
-            var ex = await sel.ExecuteScalarAsync();
+            var cmd = con.CreateCommand();
+            cmd.CommandText = @"
+        INSERT OR IGNORE INTO PlayerDB
+            (Name, Surname, KeyName,
+             Points, PointsWithBonus, PointsChanged,
+             IsActive, Place, OverallPlace)
+        VALUES
+            ($n, $s, $k,
+             0, 0, 0,
+             1, 0, 0);
 
-            int playerId;
-            if (ex != null)
-            {
-                playerId = Convert.ToInt32(ex);
-            }
-            else
-            {
-                var ins = con.CreateCommand();
-                ins.CommandText = @"
-                    INSERT INTO players (name, surname, key_name) VALUES ($n, $s, $k);
-                    SELECT last_insert_rowid();";
-                ins.Parameters.AddWithValue("$n", name);
-                ins.Parameters.AddWithValue("$s", surname);
-                ins.Parameters.AddWithValue("$k", key);
-                playerId = Convert.ToInt32(await ins.ExecuteScalarAsync());
-            }
+        SELECT Id
+        FROM PlayerDB
+        WHERE KeyName = $k;";
 
-            // ── PlayerDB: ensure entry exists with Points=0 so calculations work ──
-            // INSERT OR IGNORE never overwrites an existing player's points.
-            // calcPlace / calcOverallPlace are omitted — EnsurePlayerDbSchemaAsync
-            // may not have run yet; they are populated on the next recalculation pass.
-            var dbIns = con.CreateCommand();
-            dbIns.CommandText = @"
-                INSERT OR IGNORE INTO PlayerDB
-                    (Name, Surname, KeyName, Points, PointsWithBonus, PointsChanged,
-                     IsActive, NewId, Place, OverallPlace)
-                VALUES ($n, $s, $k, 0, 0, 0, 1, $newid, 0, 0)";
-            dbIns.Parameters.AddWithValue("$n", name);
-            dbIns.Parameters.AddWithValue("$s", surname);
-            dbIns.Parameters.AddWithValue("$k", key);
-            dbIns.Parameters.AddWithValue("$newid", playerId);
-            await dbIns.ExecuteNonQueryAsync();
+            cmd.Parameters.AddWithValue("$n", name);
+            cmd.Parameters.AddWithValue("$s", surname);
+            cmd.Parameters.AddWithValue("$k", key);
 
-            return playerId;
+            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
         }
 
         private static async Task InsertGameAsync(SqliteConnection con, int compId, int p1, int p2, int s1, int s2, TtRankedPlayer rp1, TtRankedPlayer rp2, DateTime tournamentDate)

@@ -278,6 +278,11 @@ else
         if (currentUserId != null)
         {
             currentUserGroups = await GameService.GetUserGroupsForUserAsync(currentUserId.Value, tournament.Id);
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+
+            if (authState.User.IsInRole("Admin") && allTournamentGroups.Any())
+                currentUserGroups = allTournamentGroups;
+
             currentUserGroup = currentUserGroups.FirstOrDefault();
 
             var groupMates = await GameService.GetGroupMatesAsync(currentUserId.Value, tournament.Id);
