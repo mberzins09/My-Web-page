@@ -125,37 +125,42 @@ namespace MartinsWeb.Services
         ///   +1 pt  — correct score difference (predDiff == actualDiff)
         ///            SKIPPED when OT is correctly predicted: a 1-goal OT result was
         ///            conceptually a tie going into overtime, so the diff is misleading.
-        ///   +1 pt  — correct winner (no ties in hockey)
+        ///   +2 pt  — correct winner (no ties in hockey)
         ///   +1 pt  — correctly predicted OT (only when predOT AND actualOT are both true)
-        ///   Max: 6 pts (2+2+1+1 with or without OT)
+        ///   Max: 7 pts (2+2+1+1 with or without OT)
         /// </summary>
-        public static int CalculateHockey2(
-            int predHome, int predAway, bool predOT,
-            int actualHome, int actualAway, bool actualOT,
-            string stage)
+        public static int CalculateHockey2(int predHome, int predAway, bool predOT, int actualHome, int actualAway, bool actualOT, string stage)
         {
             int points = 0;
 
             // Home score
-            if (predHome == actualHome)                      points += 2;
-            else if (Math.Abs(predHome - actualHome) == 1)  points += 1;
+            if (predHome == actualHome)
+                points += 2;
+            else if (Math.Abs(predHome - actualHome) == 1)
+                points += 1;
 
             // Away score
-            if (predAway == actualAway)                      points += 2;
-            else if (Math.Abs(predAway - actualAway) == 1)  points += 1;
+            if (predAway == actualAway)
+                points += 2;
+            else if (Math.Abs(predAway - actualAway) == 1)
+                points += 1;
 
-            int  predDiff   = predHome - predAway;
-            int  actualDiff = actualHome - actualAway;
-            bool correctOT  = predOT && actualOT; // both checked AND it was OT
+            int predDiff = predHome - predAway;
+            int actualDiff = actualHome - actualAway;
 
-            // Correct score difference — skipped when OT correctly predicted
-            if (!actualOT && predDiff == actualDiff) points += 1;
+            // OT and difference are mutually exclusive
+            if (predOT && actualOT)
+            {
+                points += 1; // correctly predicted OT
+            }
+            else if (!predOT && !actualOT && predDiff == actualDiff)
+            {
+                points += 1; // score difference only for non-OT games
+            }
 
-            // Correct winner (no ties in hockey)
-            if (Math.Sign(predDiff) == Math.Sign(actualDiff) && predDiff != 0) points += 2;
-
-            // Correctly predicted OT (only a bonus when you checked it and it really was OT)
-            if (correctOT) points += 1;
+            // Correct winner
+            if (Math.Sign(predDiff) == Math.Sign(actualDiff) && predDiff != 0)
+                points += 2;
 
             return points;
         }
@@ -169,12 +174,12 @@ namespace MartinsWeb.Services
         ///     +2 pts — exact away score
         ///     +1 pt  — away score off by ±1
         ///     +1 pt  — correct score difference (predDiff == actualDiff)
-        ///     +1 pt  — correct winner; if actual is a tie: +1 for correctly predicting a tie
+        ///     +2 pt  — correct winner; if actual is a tie: +1 for correctly predicting a tie
         ///              (both cases: Math.Sign(predDiff) == Math.Sign(actualDiff))
-        ///     Max: 6 pts
+        ///     Max: 7 pts
         ///
         ///   Playoff stages — no ties, OT checkbox enabled; identical rules to Hockey2:
-        ///     Max: 6 pts
+        ///     Max: 7 pts
         /// </summary>
         public static int CalculateFootball2(
             int predHome, int predAway, bool predOT,
