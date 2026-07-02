@@ -396,6 +396,8 @@ namespace MartinsWeb.Services
                 .Where(p => userIds.Contains(p.UserId) && gameIds.Contains(p.GameId))
                 .ToListAsync();
 
+            bool ignoreOT = pointsCalculationType == "Football" || pointsCalculationType == "Football3";
+
             // Everything below is in-memory
             return userIds.ToDictionary(
                 userId => userId,
@@ -407,10 +409,10 @@ namespace MartinsWeb.Services
                         var p = userPreds.FirstOrDefault(x => x.GameId == g.Id);
                         if (p == null) return false;
 
-                        // Perfect = exact score match (and correct OT flag for hockey)
-                        return p.PredictedHomeScore == g.HomeScore!.Value
-                            && p.PredictedAwayScore == g.AwayScore!.Value
-                            && p.PredictedIsOvertime == g.IsOvertime;
+                        bool scoresMatch = p.PredictedHomeScore == g.HomeScore!.Value && p.PredictedAwayScore == g.AwayScore!.Value;
+                        bool otMatch = ignoreOT || p.PredictedIsOvertime == g.IsOvertime;
+
+                        return scoresMatch && otMatch;
                     });
                 });
         }
