@@ -78,10 +78,6 @@
 
                             var resolvedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
                             var isPlayoff        = PredictionHelper.IsPlayoffStage(game.Stage);
-                            var useFtMode        = IsFullTimeMode(resolvedCalcType, isPlayoff);
-
-                            // What actual score to display
-                            bool showFtResult = useFtMode && game.HomeFullTimeScore != null;
 
                         <div class="tt-card pred-card">
                             <div class="pred-card-top">
@@ -155,36 +151,31 @@
                                 <span class="pred-input-col">
                                     @if (!isPast)
                                     {
-                                        var canOT = !useFtMode && PredictionHelper.CanHaveOT(game, resolvedCalcType, editValues[game.Id].Home - editValues[game.Id].Away);
+                                        var canOT = PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                                        editValues[game.Id].Home - editValues[game.Id].Away);
 
                                         <div class="d-flex align-items-center gap-1 flex-nowrap">
                                             <input class="form-control pred-score-input" type="number" min="0" max="20"
-                                                   value="@(useFtMode ? (editValues[game.Id].PredHomeFullTime ?? 0) : editValues[game.Id].Home)"
+                                                   value="@editValues[game.Id].Home"
                                                    @onchange="async e => {
-                                                       var val = PredictionHelper.ParseScore(e);
-                                                       if (useFtMode)
-                                                           editValues[game.Id].PredHomeFullTime = val;
-                                                       else {
-                                                           editValues[game.Id].Home = val;
-                                                           if (!PredictionHelper.CanHaveOT(game, resolvedCalcType, editValues[game.Id].Home - editValues[game.Id].Away))
-                                                               editValues[game.Id].IsOvertime = false;
-                                                       }
-                                                       await AutoSavePrediction(game.Id, useFtMode);
-                                                   }" />
+                                                       editValues[game.Id].Home = PredictionHelper.ParseScore(e);
+                                                       if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                                               editValues[game.Id].Home - editValues[game.Id].Away))
+                                                           editValues[game.Id].IsOvertime = false;
+                                                       await AutoSavePrediction(game.Id);
+                                                   }
+                                                   " />
                                             <span class="pred-colon">:</span>
                                             <input class="form-control pred-score-input" type="number" min="0" max="20"
-                                                   value="@(useFtMode ? (editValues[game.Id].PredAwayFullTime ?? 0) : editValues[game.Id].Away)"
+                                                   value="@editValues[game.Id].Away"
                                                    @onchange="async e => {
-                                                       var val = PredictionHelper.ParseScore(e);
-                                                       if (useFtMode)
-                                                           editValues[game.Id].PredAwayFullTime = val;
-                                                       else {
-                                                           editValues[game.Id].Away = val;
-                                                           if (!PredictionHelper.CanHaveOT(game, resolvedCalcType, editValues[game.Id].Home - editValues[game.Id].Away))
-                                                               editValues[game.Id].IsOvertime = false;
-                                                       }
-                                                       await AutoSavePrediction(game.Id, useFtMode);
-                                                   }" />
+                                                       editValues[game.Id].Away = PredictionHelper.ParseScore(e);
+                                                       if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                                               editValues[game.Id].Home - editValues[game.Id].Away))
+                                                           editValues[game.Id].IsOvertime = false;
+                                                       await AutoSavePrediction(game.Id);
+                                                   }
+                                                   " />
                                             @if (canOT)
                                             {
                                                 <div class="form-check form-check-inline ms-1 mb-0" title="Overtime?">
@@ -192,8 +183,9 @@
                                                            checked="@editValues[game.Id].IsOvertime"
                                                            @onchange="async e => {
                                                                editValues[game.Id].IsOvertime = (bool)(e.Value ?? false);
-                                                               await AutoSavePrediction(game.Id, false);
-                                                           }" />
+                                                               await AutoSavePrediction(game.Id);
+                                                           }
+                                                           " />
                                                     <label class="form-check-label small" for="ot_@(game.Id)">OT</label>
                                                 </div>
                                             }
@@ -205,7 +197,7 @@
                                             {
                                                 <button class="btn btn-sm btn-outline-success ms-1 p-0 px-1"
                                                         style="font-size:.8rem; line-height:1.4"
-                                                        @onclick="async () => await AutoSavePrediction(game.Id, useFtMode)">
+                                                        @onclick="async () => await AutoSavePrediction(game.Id)">
                                                     💾
                                                 </button>
                                             }
@@ -215,14 +207,7 @@
                                     {
                                         @if (pred != null)
                                         {
-                                            @if (useFtMode && pred.PredictedHomeFullTime != null)
-                                            {
-                                                <span class="pred-past">@pred.PredictedHomeFullTime : @pred.PredictedAwayFullTime <span class="text-white-50" style="font-size:.75rem">(FT)</span></span>
-                                            }
-                                            else
-                                            {
-                                                <span class="pred-past">@pred.PredictedHomeScore : @pred.PredictedAwayScore@(pred.PredictedIsOvertime ? " OT" : "")</span>
-                                            }
+                                            <span class="pred-past">@pred.PredictedHomeScore : @pred.PredictedAwayScore@(pred.PredictedIsOvertime ? " OT" : "")</span>
                                         }
                                         else
                                         {
@@ -234,24 +219,12 @@
                                     @if (!isPast && pred != null)
                                     {
                                         var savedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
-                                        var savedUseFtMode = IsFullTimeMode(savedCalcType, isPlayoff);
                                         <span class="text-white-50 me-1" style="font-size:.78rem;">
-                                            @if (savedUseFtMode && pred.PredictedHomeFullTime != null)
-                                            {
-                                                @($"FT: {pred.PredictedHomeFullTime}:{pred.PredictedAwayFullTime}")
-                                            }
-                                            else
-                                            {
-                                                @($"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}")
-                                            }
+                                            @($"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}")
                                         </span>
                                     }
                                     <span class="pred-result">
-                                        @if (showFtResult)
-                                        {
-                                            <strong>@game.HomeFullTimeScore:@game.AwayFullTimeScore <span class="text-white-50" style="font-size:.75rem">(FT)</span></strong>
-                                        }
-                                        else if (game.HomeScore != null)
+                                        @if (game.HomeScore != null)
                                         {
                                             <strong>@game.HomeScore:@game.AwayScore@(game.IsOvertime ? " OT" : "")</strong>
                                         }
@@ -421,10 +394,6 @@
         .Where(p => selectedStage == null || p.Game.Stage == selectedStage)
         .Sum(p => CalcPoints(p, p.Game));
 
-    // Returns true when this calc type + playoff combo means we use FT fields
-    bool IsFullTimeMode(string calcType, bool isPlayoff) =>
-        isPlayoff && (calcType == "Football" || calcType == "Football3");
-
     int CalcPoints(Prediction p, Game g)
     {
         if (g.HomeScore == null || g.AwayScore == null) return 0;
@@ -432,9 +401,7 @@
         return PointsCalculator.Calculate(
             p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
             g.HomeScore.Value, g.AwayScore.Value, g.IsOvertime,
-            g.Stage, calcType,
-            g.HomeFullTimeScore, g.AwayFullTimeScore,
-            p.PredictedHomeFullTime, p.PredictedAwayFullTime);
+            g.Stage, calcType);
     }
 
     int StageOrder(string stage) => PredictionHelper.StageOrder(stage);
@@ -464,8 +431,6 @@
                     Home             = pred.PredictedHomeScore,
                     Away             = pred.PredictedAwayScore,
                     IsOvertime       = pred.PredictedIsOvertime,
-                    PredHomeFullTime = pred.PredictedHomeFullTime,
-                    PredAwayFullTime = pred.PredictedAwayFullTime
                 };
         }
     }
@@ -483,38 +448,16 @@
 
     // ftMode = true  → saves to PredictedHomeFullTime / PredictedAwayFullTime
     // ftMode = false → saves to PredictedHomeScore / PredictedAwayScore / IsOvertime as before
-    async Task AutoSavePrediction(int gameId, bool ftMode)
+    async Task AutoSavePrediction(int gameId)
     {
         if (userId == null || tournament == null) return;
         saveError = null;
         try
         {
             var s = editValues[gameId];
-            if (ftMode)
-                await GameService.SavePredictionAsync(
-                userId.Value, gameId,
-                s.Home, s.Away, s.IsOvertime,
-                s.PredHomeFullTime ?? 0,    // default to 0 if not yet typed
-                s.PredAwayFullTime ?? 0,
-                saveMainScore: false,
-                saveFullTimeScore: true);
-            else
-                await GameService.SavePredictionAsync(
-                userId.Value, gameId,
-                s.Home, s.Away, s.IsOvertime,
-                null, null,
-                saveMainScore: true,
-                saveFullTimeScore: false);                        // don't overwrite FT prediction
+            await GameService.SavePredictionAsync(userId.Value, gameId, s.Home, s.Away, s.IsOvertime);
 
             predictions = await GameService.GetUserPredictionsByTournamentAsync(userId.Value, tournament.Id);
-
-            // Keep FT values in editValues after reload
-            foreach (var pred in predictions)
-                if (editValues.TryGetValue(pred.GameId, out var ev))
-                {
-                    ev.PredHomeFullTime = pred.PredictedHomeFullTime;
-                    ev.PredAwayFullTime = pred.PredictedAwayFullTime;
-                }
 
             justSaved.Add(gameId);
             StateHasChanged();

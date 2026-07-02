@@ -76,24 +76,15 @@ namespace MartinsWeb.Services
             await _db.SaveChangesAsync();
         }
 
-        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null, bool saveMainScore = true, bool saveFullTimeScore = false)
+        public async Task UpdateScoreAsync(int gameId, int homeScore, int awayScore, bool isOvertime = false)
         {
             var match = await _db.Games.FindAsync(gameId);
             if (match == null)
                 return;
 
-            if (saveMainScore)
-            {
-                match.HomeScore = homeScore;
-                match.AwayScore = awayScore;
-                match.IsOvertime = isOvertime;
-            }
-
-            if (saveFullTimeScore)
-            {
-                match.HomeFullTimeScore = homeFullTime;
-                match.AwayFullTimeScore = awayFullTime;
-            }
+             match.HomeScore = homeScore;
+             match.AwayScore = awayScore;
+             match.IsOvertime = isOvertime;
 
             await _db.SaveChangesAsync();
         }
@@ -307,24 +298,15 @@ namespace MartinsWeb.Services
 
         // ── Predictions ────────────────────────────────────────────────────────
 
-        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false, int? homeFullTime = null, int? awayFullTime = null, bool saveMainScore = true, bool saveFullTimeScore = false)
+        public async Task SavePredictionAsync(int userId, int gameId, int homeScore, int awayScore, bool isOvertime = false)
         {
             var existing = await _db.Predictions.FirstOrDefaultAsync(p => p.UserId == userId && p.GameId == gameId);
 
             if (existing != null)
             {
-                if (saveMainScore)
-                {
-                    existing.PredictedHomeScore  = homeScore;
-                    existing.PredictedAwayScore  = awayScore;
-                    existing.PredictedIsOvertime = isOvertime;
-                }
-
-                if (saveFullTimeScore)
-                {
-                    existing.PredictedHomeFullTime = homeFullTime;
-                    existing.PredictedAwayFullTime = awayFullTime;
-                }
+                existing.PredictedHomeScore  = homeScore;
+                existing.PredictedAwayScore  = awayScore;
+                existing.PredictedIsOvertime = isOvertime;
             }
             else
             {
@@ -335,8 +317,6 @@ namespace MartinsWeb.Services
                     PredictedHomeScore   = homeScore,
                     PredictedAwayScore   = awayScore,
                     PredictedIsOvertime  = isOvertime,
-                    PredictedHomeFullTime = homeFullTime,   // NEW
-                    PredictedAwayFullTime = awayFullTime    // NEW
                 });
             }
             await _db.SaveChangesAsync();
@@ -382,7 +362,7 @@ namespace MartinsWeb.Services
                                 p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
                                 p.Game.HomeScore.Value, p.Game.AwayScore.Value, p.Game.IsOvertime,
                                 p.Game.Stage,
-                                calcType, p.Game.HomeFullTimeScore, p.Game.AwayFullTimeScore);
+                                calcType);
                         })
                 ))
                 .OrderByDescending(x => x.Points)
@@ -636,6 +616,29 @@ namespace MartinsWeb.Services
             var group = await _db.UserGroups.FindAsync(groupId);
             if (group == null) return;
             group.PointsCalculationType = calcType;
+            await _db.SaveChangesAsync();
+        }
+
+        /// <summary>
+        /// One-time migration: for predictions where main score is 0/0 (never set)
+        /// but FullTime fields were filled, copy FullTime → main score fields.
+        /// Safe to run multiple times — only touches rows where PredictedHomeFullTime != null.
+        /// </summary>
+        public async Task MigrateFullTimePredictionsAsync()
+        {
+            var predictions = await _db.Predictions
+                .Where(p => p.PredictedHomeFullTime != null
+                         && p.PredictedAwayFullTime != null
+                         && p.PredictedHomeScore == 0
+                         && p.PredictedAwayScore == 0)
+                .ToListAsync();
+
+            foreach (var p in predictions)
+            {
+                p.PredictedHomeScore = p.PredictedHomeFullTime!.Value;
+                p.PredictedAwayScore = p.PredictedAwayFullTime!.Value;
+            }
+
             await _db.SaveChangesAsync();
         }
     }

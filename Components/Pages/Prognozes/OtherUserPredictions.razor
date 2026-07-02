@@ -98,8 +98,7 @@
                             if (hasPred && started && game.HomeScore != null && game.AwayScore != null)
                                 earnedPoints = PointsCalculator.Calculate(
                                     pred!.PredictedHomeScore, pred.PredictedAwayScore, pred.PredictedIsOvertime,
-                                    game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,game.Stage, ResolvedCalcType,
-                                    game.HomeFullTimeScore, game.AwayFullTimeScore);
+                                    game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,game.Stage, ResolvedCalcType);
 
                             <div class="tt-card pred-card">
                                 <div class="pred-card-top">

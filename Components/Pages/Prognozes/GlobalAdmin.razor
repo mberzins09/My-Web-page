@@ -190,6 +190,7 @@
             </table>
             </div>
         }
+        <button class="btn btn-sm btn-warning" @onclick="RunMigration">Migrate FT Predictions</button>
     </Authorized>
     <NotAuthorized>
         <p class="text-danger">Access denied.</p>
@@ -200,6 +201,13 @@
     List<Tournament>? tournaments;
     List<User>? users;
     int currentUserId;
+    bool migrationDone = false;
+
+    async Task RunMigration()
+    {
+        await GameService.MigrateFullTimePredictionsAsync();
+        migrationDone = true;
+    }
 
     // ── Tournament form ────────────────────────────────────────────────────────
     Tournament? editingTournament;

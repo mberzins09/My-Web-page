@@ -9,23 +9,8 @@ namespace MartinsWeb.Services
         public static int Calculate(
             int predHome, int predAway, bool predOT,
             int actualHome, int actualAway, bool actualOT,
-            string stage, string calculationType = "Football",
-            int? actualHomeFullTime = null, int? actualAwayFullTime = null,
-            int? predHomeFullTime = null, int? predAwayFullTime = null)
+            string stage, string calculationType = "Football")
         {
-            bool isPlayoff = !stage.Contains("group", StringComparison.OrdinalIgnoreCase)
-                  && !stage.Contains("grupa", StringComparison.OrdinalIgnoreCase);
-
-            // For Football/Football3 playoffs: compare predicted FT vs actual FT
-            if (isPlayoff && (calculationType == "Football" || calculationType == "Football3") && actualHomeFullTime != null && actualAwayFullTime != null)
-            {
-                int ph = predHomeFullTime ?? predHome;   // fallback to main pred if FT not filled
-                int pa = predAwayFullTime ?? predAway;
-                return calculationType == "Football3"
-                    ? CalculateFootball3(ph, pa, actualHomeFullTime.Value, actualAwayFullTime.Value, stage)
-                    : CalculateFootball(ph, pa, actualHomeFullTime.Value, actualAwayFullTime.Value, stage);
-            }
-
             return calculationType switch
             {
                 var t when t.Equals("Hockey", StringComparison.OrdinalIgnoreCase)
