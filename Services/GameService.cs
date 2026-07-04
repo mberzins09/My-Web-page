@@ -643,5 +643,96 @@ namespace MartinsWeb.Services
 
             await _db.SaveChangesAsync();
         }
+
+        /// <summary>All history entries for a specific user, newest first.</summary>
+        public async Task<List<(PredictionsHistory History, PredictionsHistoryEntry Entry, int TotalParticipants)>>
+            GetUserTournamentHistoryAsync(int userId)
+        {
+            var histories = await _db.PredictionsHistories
+                .Include(h => h.Entries)
+                .Where(h => h.Entries.Any(e => e.UserId == userId))
+                .OrderByDescending(h => h.CompletedAt)
+                .ToListAsync();
+
+            return histories.Select(h =>
+            {
+                var entry = h.Entries.First(e => e.UserId == userId);
+                var total = h.Entries.Count;
+                var sorted = h.Entries.OrderByDescending(e => e.Points).ToList();
+                return (h, entry, total);
+            }).ToList();
+        }
+
+        /// <summary>Per-stage prediction breakdown for a user in a tournament.</summary>
+        public async Task<List<(string Stage, int Predicted, int Total, int Points)>>
+            GetUserStageStatsAsync(int userId, int tournamentId, string calcType)
+        {
+            var games = await _db.Games
+                .Where(g => g.TournamentId == tournamentId
+                         && g.HomeScore != null
+                         && g.AwayScore != null)
+                .ToListAsync();
+
+            var gameIds = games.Select(g => g.Id).ToList();
+            var preds = await _db.Predictions
+                .Where(p => p.UserId == userId && gameIds.Contains(p.GameId))
+                .ToListAsync();
+
+            return games
+                .GroupBy(g => g.Stage)
+                .OrderBy(grp => PredictionHelper.StageOrder(grp.Key))
+                .Select(grp =>
+                {
+                    int total = grp.Count();
+                    int predicted = grp.Count(g =>
+                    {
+                        var p = preds.FirstOrDefault(x => x.GameId == g.Id);
+                        return p != null;
+                    });
+                    int points = grp.Sum(g =>
+                    {
+                        var p = preds.FirstOrDefault(x => x.GameId == g.Id);
+                        if (p == null) return 0;
+                        return PointsCalculator.Calculate(
+                            p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
+                            g.HomeScore!.Value, g.AwayScore!.Value, g.IsOvertime,
+                            g.Stage, calcType);
+                    });
+                    return (grp.Key, predicted, total, points);
+                })
+                .ToList();
+        }
+
+        public async Task<List<(Game Game, Prediction? Pred, int? Points)>>
+    GetUserPredictionDetailAsync(int userId, int tournamentId, string calcType)
+        {
+            var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow,
+                            TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
+
+            var games = await _db.Games
+                .Where(g => g.TournamentId == tournamentId)
+                .OrderBy(g => g.GameDate)
+                .ToListAsync();
+
+            var gameIds = games.Select(g => g.Id).ToList();
+            var preds = await _db.Predictions
+                .Where(p => p.UserId == userId && gameIds.Contains(p.GameId))
+                .ToListAsync();
+
+            return games.Select(g =>
+            {
+                // Hide prediction for games that haven't started yet
+                bool started = g.GameDate < now;
+
+                var p = started ? preds.FirstOrDefault(x => x.GameId == g.Id) : null;
+                int? pts = null;
+                if (p != null && g.HomeScore != null && g.AwayScore != null)
+                    pts = PointsCalculator.Calculate(
+                        p.PredictedHomeScore, p.PredictedAwayScore, p.PredictedIsOvertime,
+                        g.HomeScore.Value, g.AwayScore.Value, g.IsOvertime,
+                        g.Stage, calcType);
+                return (g, (Prediction?)p, pts);
+            }).ToList();
+        }
     }
 }

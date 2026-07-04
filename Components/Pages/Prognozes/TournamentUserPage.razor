@@ -1,0 +1,287 @@
+@page "/prognozes/{Slug}/user/{UserId:int}"
+@rendermode InteractiveServer
+@using MartinsWeb.Services
+@using MartinsWeb.Models
+@inject GameService GameService
+@inject NavigationManager Nav
+
+<div class="mb-3">
+    <button class="btn btn-sm btn-outline-secondary" @onclick="GoBack">← Back</button>
+</div>
+
+@if (tournament == null || targetUser == null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h4 class="mb-1">@targetUser.Username</h4>
+    <p class="text-white-50 mb-3" style="font-size:.85rem">@tournament.Name</p>
+
+    @* ── Tournament History ──────────────────────────────────────────── *@
+    @if (historyEntries.Any())
+    {
+        <h5 class="mb-2">📜 Tournament History</h5>
+        <div class="d-flex flex-wrap gap-2 mb-4">
+            @foreach (var (hist, entry, total) in historyEntries)
+            {
+                var sorted = hist.Entries.OrderByDescending(e => e.Points).ToList();
+                var place  = sorted.FindIndex(e => e.UserId == UserId) + 1;
+                <div class="tt-card p-2" style="min-width:180px; font-size:.82rem;">
+                    <div class="fw-semibold text-white mb-1">@hist.TournamentName</div>
+                    <div class="text-white-50">
+                        🏅 @place / @total &nbsp;|&nbsp; ⭐ @entry.Points pts
+                    </div>
+                    <div class="text-white-50" style="font-size:.75rem;">
+                        @hist.CompletedAt.ToString("dd/MM/yyyy")
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Current Tournament Stats ────────────────────────────────────── *@
+    <h5 class="mb-2">📊 Current Tournament Stats</h5>
+
+    @if (stageStats.Any())
+    {
+        
+        bool hasGroups  = stageStats.Any(s => IsGroupStage(s.Stage));
+        bool hasPlayoff = stageStats.Any(s => !IsGroupStage(s.Stage));
+
+        @* Group stages *@
+        @if (hasGroups)
+        {
+            <p class="text-white-50 mb-1" style="font-size:.8rem;">Group Stage</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                @foreach (var s in stageStats.Where(s => IsGroupStage(s.Stage)))
+                {
+                    <div class="tt-card p-2 text-center" style="min-width:110px; font-size:.82rem;">
+                        <div class="text-white-50 mb-1" style="font-size:.75rem;">@s.Stage</div>
+                        <div class="fw-bold text-white">@s.Points pts</div>
+                        <div class="text-white-50">@s.Predicted / @s.Total games</div>
+                    </div>
+                }
+                @* Group total *@
+                @{
+                    var gTotal  = stageStats.Where(s => IsGroupStage(s.Stage));
+                    var gPts    = gTotal.Sum(s => s.Points);
+                    var gPred   = gTotal.Sum(s => s.Predicted);
+                    var gGames  = gTotal.Sum(s => s.Total);
+                }
+                <div class="tt-card p-2 text-center border border-primary" style="min-width:110px; font-size:.82rem;">
+                    <div class="text-white-50 mb-1" style="font-size:.75rem;">Groups Total</div>
+                    <div class="fw-bold text-warning">@gPts pts</div>
+                    <div class="text-white-50">@gPred / @gGames games</div>
+                </div>
+            </div>
+        }
+
+        @* Playoff stages *@
+        @if (hasPlayoff)
+        {
+            <p class="text-white-50 mb-1 mt-2" style="font-size:.8rem;">Playoffs</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                @foreach (var s in stageStats.Where(s => !IsGroupStage(s.Stage)))
+                {
+                    <div class="tt-card p-2 text-center" style="min-width:110px; font-size:.82rem;">
+                        <div class="text-white-50 mb-1" style="font-size:.75rem;">@s.Stage</div>
+                        <div class="fw-bold text-white">@s.Points pts</div>
+                        <div class="text-white-50">@s.Predicted / @s.Total games</div>
+                    </div>
+                }
+                @* Playoff total *@
+                @{
+                    var pTotal = stageStats.Where(s => !IsGroupStage(s.Stage));
+                    var pPts   = pTotal.Sum(s => s.Points);
+                    var pPred  = pTotal.Sum(s => s.Predicted);
+                    var pGames = pTotal.Sum(s => s.Total);
+                }
+                <div class="tt-card p-2 text-center border border-primary" style="min-width:110px; font-size:.82rem;">
+                    <div class="text-white-50 mb-1" style="font-size:.75rem;">Playoffs Total</div>
+                    <div class="fw-bold text-warning">@pPts pts</div>
+                    <div class="text-white-50">@pPred / @pGames games</div>
+                </div>
+            </div>
+        }
+
+        @* Grand total *@
+        var allPts   = stageStats.Sum(s => s.Points);
+        var allPred  = stageStats.Sum(s => s.Predicted);
+        var allGames = stageStats.Sum(s => s.Total);
+
+        <div class="d-flex mb-4">
+            <div class="tt-card p-2 text-center border border-warning" style="min-width:130px; font-size:.85rem;">
+                <div class="text-white-50 mb-1" style="font-size:.75rem;">Overall Total</div>
+                <div class="fw-bold text-warning fs-6">@allPts pts</div>
+                <div class="text-white-50">@allPred / @allGames games predicted</div>
+            </div>
+        </div>
+    }
+
+    @* ── Predictions List ────────────────────────────────────────────── *@
+    <h5 class="mb-2">📋 Predictions</h5>
+
+    @* Stage filter *@
+    <div class="mb-2 d-flex flex-wrap gap-2">
+        <button class="btn btn-sm @(stageFilter == "all" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => stageFilter = "all"'>All</button>
+        <button class="btn btn-sm @(stageFilter == "groups" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => stageFilter = "groups"'>Groups</button>
+        <button class="btn btn-sm @(stageFilter == "playoffs" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => stageFilter = "playoffs"'>Playoffs</button>
+    </div>
+
+    @* List header *@
+    <div class="pred-expand-row fw-semibold text-black-50 mb-1" style="font-size:.75rem; gap:4px;">
+        <span style="width:68px; flex-shrink:0;">
+            Date
+            <button class="btn btn-link btn-sm p-0 text-black-50" style="font-size:.7rem;"
+                    @onclick='() => ToggleSort("date")'>
+                @SortIcon("date")
+            </button>
+        </span>
+        <span style="flex:1;">Home</span>
+        <span style="flex:1;">Away</span>
+        <span style="width:52px; flex-shrink:0; text-align:center;">Pred</span>
+        <span style="width:52px; flex-shrink:0; text-align:center;">Result</span>
+        <span style="width:36px; flex-shrink:0; text-align:right;">
+            Pts
+            <button class="btn btn-link btn-sm p-0 text-black-50" style="font-size:.7rem;"
+                    @onclick='() => ToggleSort("pts")'>
+                @SortIcon("pts")
+            </button>
+        </span>
+    </div>
+
+    @foreach (var (game, pred, pts) in SortedFiltered)
+    {
+        var homeShort = Shorten(game.HomeTeam);
+        var awayShort = Shorten(game.AwayTeam);
+        var predStr   = pred != null
+            ? $"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}"
+            : "—";
+        var resultStr = game.HomeScore != null
+            ? $"{game.HomeScore}:{game.AwayScore}{(game.IsOvertime ? " OT" : "")}"
+            : "TBD";
+
+        <div class="pred-expand-row" style="font-size:.8rem; gap:4px; padding:3px 0; border-top:1px solid #333;">
+            <span style="width:68px; flex-shrink:0; color:#aaa;">@game.GameDate.ToString("dd/MM/yyyy")</span>
+            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@game.HomeTeam">@homeShort</span>
+            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@game.AwayTeam">@awayShort</span>
+            <span style="width:52px; flex-shrink:0; text-align:center; color:#ccc;">@predStr</span>
+            <span style="width:52px; flex-shrink:0; text-align:center; color:#ccc;">@resultStr</span>
+            <span style="width:36px; flex-shrink:0; text-align:right;">
+                @if (pts != null)
+                {
+                    <span class="badge @PredictionHelper.PointsBadgeClass(pts.Value, calcType)">@pts</span>
+                }
+                else
+                {
+                    <span class="text-white-50">—</span>
+                }
+            </span>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public string Slug   { get; set; } = "";
+    [Parameter] public int    UserId { get; set; }
+
+    Tournament? tournament;
+    User?       targetUser;
+    string      calcType = "Football";
+
+    List<(PredictionsHistory History, PredictionsHistoryEntry Entry, int Total)> historyEntries = new();
+    List<(string Stage, int Predicted, int Total, int Points)>                   stageStats     = new();
+    List<(Game Game, Prediction? Pred, int? Points)>                             allDetails     = new();
+
+    string stageFilter  = "all";
+    string sortBy       = "date";
+    bool   sortDesc     = false;
+
+    IEnumerable<(Game Game, Prediction? Pred, int? Points)> SortedFiltered
+    {
+        get
+        {
+            var q = allDetails.AsEnumerable();
+
+            // Stage filter
+            q = stageFilter switch
+            {
+                "groups"   => q.Where(x => IsGroupStage(x.Game.Stage)),
+                "playoffs" => q.Where(x => !IsGroupStage(x.Game.Stage)),
+                _          => q
+            };
+
+            // Sort
+            q = (sortBy, sortDesc) switch
+            {
+                ("date", false) => q.OrderBy(x => x.Game.GameDate),
+                ("date", true)  => q.OrderByDescending(x => x.Game.GameDate),
+                ("pts",  false) => q.OrderBy(x => x.Points ?? -1),
+                ("pts",  true)  => q.OrderByDescending(x => x.Points ?? -1),
+                _               => q.OrderBy(x => x.Game.GameDate)
+            };
+
+            return q;
+        }
+    }
+
+    void ToggleSort(string col)
+    {
+        if (sortBy == col) sortDesc = !sortDesc;
+        else { sortBy = col; sortDesc = false; }
+    }
+
+    string SortIcon(string col)
+    {
+        if (sortBy != col) return "⇅";
+        return sortDesc ? "▼" : "▲";
+    }
+
+    bool IsGroupStage(string stage) =>
+        stage.Contains("group", StringComparison.OrdinalIgnoreCase) ||
+        stage.Contains("grupa", StringComparison.OrdinalIgnoreCase);
+
+    string Shorten(string name) => name.Length <= 10 ? name : name[..10] + ".";
+
+    void GoBack() => Nav.NavigateTo($"/prognozes/{Slug}/leaderboard");
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournament = await GameService.GetTournamentBySlugAsync(Slug);
+        if (tournament == null) return;
+
+        // Resolve calc type — read groupId from query string if passed
+        var uri      = new Uri(Nav.Uri);
+        var query    = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var groupIdStr = query["groupId"];
+
+        if (int.TryParse(groupIdStr, out var groupId))
+        {
+            var allGroups = await GameService.GetUserGroupsByTournamentAsync(tournament.Id);
+            var group     = allGroups.FirstOrDefault(g => g.Id == groupId);
+            calcType      = PredictionHelper.ResolveCalcType(group, tournament);
+        }
+        else
+        {
+            calcType = tournament.PointsCalculationType;
+        }
+
+        // Load target user
+        var users = await GameService.GetAllUsersAsync();
+        targetUser = users.FirstOrDefault(u => u.Id == UserId);
+        if (targetUser == null) return;
+
+        // History
+        historyEntries = await GameService.GetUserTournamentHistoryAsync(UserId);
+
+        // Stage stats for current tournament
+        stageStats = await GameService.GetUserStageStatsAsync(UserId, tournament.Id, calcType);
+
+        // All prediction details
+        allDetails = await GameService.GetUserPredictionDetailAsync(UserId, tournament.Id, calcType);
+    }
+}
