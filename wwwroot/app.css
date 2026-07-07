@@ -270,12 +270,6 @@ h1:focus {
     color: #adb5bd;
 }
 
-/* ── Predictions card grid ─────────────────────────────────────── */
-
-.pred-grid {
-    max-width: 720px;
-}
-
 .pred-total {
     max-width: 720px;
     font-size: .88rem;
@@ -408,3 +402,160 @@ h1:focus {
     font-weight: 600;
     color: #dee2e6;
 }
+
+/* ── pred-grid: responsive card grid ────────────────────────────────────── */
+.pred-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+}
+
+/* ── pred-card-v2 ────────────────────────────────────────────────────────── */
+.pred-card-v2 {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    max-width: 480px; /* cap width on very wide screens */
+    width: 100%;
+}
+
+/* ── Row 1 ───────────────────────────────────────────────────────────────── */
+/* MyPredictions: date · saved pred · stage                                  */
+/* Scores:        date · stage                                                */
+.pcv2-row1 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 3px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    flex-wrap: nowrap;
+}
+
+.pcv2-date {
+    font-size: .73rem;
+    color: #aaa;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.pcv2-saved-pred {
+    flex: 1;
+    font-size: .73rem;
+    color: #888;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pcv2-stage {
+    font-size: .72rem;
+    color: #888;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-align: right;
+}
+
+/* ── Row 2 ───────────────────────────────────────────────────────────────── */
+/* MyPredictions: "TeamA vs TeamB ▼"  left-aligned                           */
+/* Scores:        "TeamA vs TeamB" left · score + "▼" right                  */
+.pcv2-row2 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+.pcv2-teams {
+    flex: 1;
+    font-size: .88rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pcv2-expand-btn {
+    color: #aaa !important;
+    font-size: .75rem;
+    flex-shrink: 0;
+    line-height: 1;
+    text-decoration: none !important;
+    padding: 0 !important;
+}
+
+/* Scores only: score + expand on right side */
+.pcv2-score-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.pcv2-score {
+    font-size: .9rem;
+    color: #fff;
+    white-space: nowrap;
+}
+
+/* ── Row 3 ───────────────────────────────────────────────────────────────── */
+/* MyPredictions: input fields (left) · actual score + pts (right)           */
+/* Scores:        admin input fields (left-aligned)                           */
+.pcv2-row3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+
+.pcv2-inputs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.pcv2-result-pts {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    font-size: .85rem;
+}
+
+/* ── History expand panel ────────────────────────────────────────────────── */
+.pcv2-history {
+    padding: 6px 10px 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    font-size: .78rem;
+}
+
+.pcv2-history-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    color: #ccc;
+    margin-bottom: 3px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid #444;
+}
+
+.pcv2-history-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 1px 0;
+    border-top: 1px solid #2a2a2a;
+}
+
+    .pcv2-history-row span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }

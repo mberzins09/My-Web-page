@@ -65,10 +65,10 @@
                     <strong class="ms-1">@totalPoints pts</strong>
                 </div>
 
-                <div class="tt-grid pred-grid">
+                <div class="pred-grid">
                     @foreach (var game in filteredGames)
                     {
-                        var pred   = predictions.FirstOrDefault(p => p.GameId == game.Id);
+                        var pred = predictions.FirstOrDefault(p => p.GameId == game.Id);
                         var isPast = game.GameDate < PredictionHelper.LatviaTime;
                         EnsureEditValue(game.Id, pred);
 
@@ -76,181 +76,180 @@
                         if (pred != null && game.HomeScore != null && game.AwayScore != null)
                             earnedPoints = CalcPoints(pred, game);
 
-                            var resolvedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
-                            var isPlayoff        = PredictionHelper.IsPlayoffStage(game.Stage);
+                        var resolvedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
+                        var canOT = PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                        editValues[game.Id].Home - editValues[game.Id].Away);
 
-                        <div class="tt-card pred-card">
-                            <div class="pred-card-top">
-                                <span class="pred-date">@game.GameDate.ToLocalTime().ToString("MMM dd HH:mm")</span>
-                                <span class="pred-match">
-                                    @game.HomeTeam vs @game.AwayTeam
-                                    <button class="btn btn-link btn-sm p-0 ms-1 text-white-50"
-                                            style="font-size:.75rem; vertical-align:middle; line-height:1"
-                                            title="Show team history"
-                                            @onclick="() => ToggleTeamHistory(game.Id)">
-                                        @(expandedTeamGameIds.Contains(game.Id) ? "▲" : "▼")
-                                    </button>
+                        // Saved prediction string for row 1
+                        var savedPredStr = pred != null
+                            ? $"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}"
+                            : "";
+
+                        <div class="tt-card pred-card-v2">
+
+                            @* ── Row 1: date · saved pred · stage ────────── *@
+                            <div class="pcv2-row1">
+                                <span class="pcv2-date">@game.GameDate.ToLocalTime().ToString("dd/MM HH:mm")</span>
+                                <span class="pcv2-saved-pred">
+                                    @if (savedPredStr != "")
+                                    {
+                                        @savedPredStr
+                                    }
                                 </span>
-                                <span class="pred-stage">@game.Stage</span>
+                                <span class="pcv2-stage">@game.Stage</span>
                             </div>
+
+                            @* ── Row 2: "TeamA vs TeamB ▼" left-aligned ──── *@
+                            <div class="pcv2-row2">
+                                <span class="pcv2-teams">@game.HomeTeam vs @game.AwayTeam</span>
+                                <button class="btn btn-link btn-sm pcv2-expand-btn"
+                                        title="Show team history"
+                                        @onclick="() => ToggleTeamHistory(game.Id)">
+                                    @(expandedTeamGameIds.Contains(game.Id) ? "▲" : "▼")
+                                </button>
+                            </div>
+
+                            @* ── Team history expand ──────────────────────── *@
                             @if (expandedTeamGameIds.Contains(game.Id))
                             {
                                 var homeHistory = GetTeamHistory(game.HomeTeam);
                                 var awayHistory = GetTeamHistory(game.AwayTeam);
                                 var maxRows = Math.Max(homeHistory.Count, awayHistory.Count);
 
-                                @if (maxRows == 0)
-                                {
-                                    <div class="px-2 pb-1" style="font-size:.78rem; color:#888;">
-                                        No played games yet.
-                                    </div>
-                                }
-                                else
-                                {
-                                    <div class="px-2 pb-2" style="font-size:.78rem;">
-                                        @* Header row with team names *@
-                                        <div class="d-flex" style="gap:4px; margin-bottom:2px;">
-                                            <div style="flex:1; font-weight:600; color:#ccc;">@game.HomeTeam</div>
-                                            <div style="flex:1; font-weight:600; color:#ccc; text-align:right;">@game.AwayTeam</div>
-                                        </div>
-                                        @* One row per game slot *@
-                                        @for (int i = 0; i < maxRows; i++)
-                                        {
-                                            <div class="d-flex align-items-center" style="gap:4px; padding:1px 0; border-top:1px solid #333;">
-                                                @* Home team's i-th game *@
-                                                @if (i < homeHistory.Count)
-                                                {
-                                                    var h = homeHistory[i];
-                                                    <div style="flex:1;" class="@HistoryResultClass(h.TeamGoals, h.OppGoals)">
-                                                        vs @h.Opponent
-                                                        <strong>@h.TeamGoals:@h.OppGoals@(h.OT ? " OT" : "")</strong>
-                                                    </div>
-                                                }
-                                                else
-                                                {
-                                                    <div style="flex:1;"></div>
-                                                }
-                                                @* Away team's i-th game *@
-                                                @if (i < awayHistory.Count)
-                                                {
-                                                    var a = awayHistory[i];
-                                                    <div style="flex:1; text-align:right;" class="@HistoryResultClass(a.TeamGoals, a.OppGoals)">
-                                                        <strong>@a.TeamGoals:@a.OppGoals@(a.OT ? " OT" : "")</strong> vs @a.Opponent
-                                                    </div>
-                                                }
-                                                else
-                                                {
-                                                    <div style="flex:1;"></div>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            }
-                            <div class="pred-card-bottom">
-                                <span class="pred-input-col">
-                                    @if (!isPast)
+                                <div class="pcv2-history">
+                                    @if (maxRows == 0)
                                     {
-                                        var canOT = PredictionHelper.CanHaveOT(game, resolvedCalcType,
-                                                        editValues[game.Id].Home - editValues[game.Id].Away);
-
-                                        <div class="d-flex align-items-center gap-1 flex-nowrap">
-                                            <input class="form-control pred-score-input" type="number" min="0" max="20"
-                                                   value="@editValues[game.Id].Home"
-                                                   @onchange="async e => {
-                                                       editValues[game.Id].Home = PredictionHelper.ParseScore(e);
-                                                       if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
-                                                               editValues[game.Id].Home - editValues[game.Id].Away))
-                                                           editValues[game.Id].IsOvertime = false;
-                                                       await AutoSavePrediction(game.Id);
-                                                   }
-                                                   " />
-                                            <span class="pred-colon">:</span>
-                                            <input class="form-control pred-score-input" type="number" min="0" max="20"
-                                                   value="@editValues[game.Id].Away"
-                                                   @onchange="async e => {
-                                                       editValues[game.Id].Away = PredictionHelper.ParseScore(e);
-                                                       if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
-                                                               editValues[game.Id].Home - editValues[game.Id].Away))
-                                                           editValues[game.Id].IsOvertime = false;
-                                                       await AutoSavePrediction(game.Id);
-                                                   }
-                                                   " />
-                                            @if (canOT)
-                                            {
-                                                <div class="form-check form-check-inline ms-1 mb-0" title="Overtime?">
-                                                    <input class="form-check-input" type="checkbox" id="ot_@(game.Id)"
-                                                           checked="@editValues[game.Id].IsOvertime"
-                                                           @onchange="async e => {
-                                                               editValues[game.Id].IsOvertime = (bool)(e.Value ?? false);
-                                                               await AutoSavePrediction(game.Id);
-                                                           }
-                                                           " />
-                                                    <label class="form-check-label small" for="ot_@(game.Id)">OT</label>
-                                                </div>
-                                            }
-                                            @if (justSaved.Contains(game.Id))
-                                            {
-                                                <span class="text-success ms-1">✓</span>
-                                            }
-                                            else if (pred == null)
-                                            {
-                                                <button class="btn btn-sm btn-outline-success ms-1 p-0 px-1"
-                                                        style="font-size:.8rem; line-height:1.4"
-                                                        @onclick="async () => await AutoSavePrediction(game.Id)">
-                                                    💾
-                                                </button>
-                                            }
-                                        </div>
+                                        <span style="color:#888;">No played games yet.</span>
                                     }
                                     else
                                     {
-                                        @if (pred != null)
+                                        <div class="pcv2-history-header">
+                                            <span>@game.HomeTeam</span>
+                                            <span style="text-align:right;">@game.AwayTeam</span>
+                                        </div>
+                                        @for (int i = 0; i < maxRows; i++)
                                         {
-                                            <span class="pred-past">@pred.PredictedHomeScore : @pred.PredictedAwayScore@(pred.PredictedIsOvertime ? " OT" : "")</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-white">—</span>
+                                            <div class="pcv2-history-row">
+                                                @if (i < homeHistory.Count)
+                                                {
+                                                    var h = homeHistory[i];
+                                                    <span class="@HistoryResultClass(h.TeamGoals, h.OppGoals)">
+                                                        vs @h.Opponent <strong>@h.TeamGoals:@h.OppGoals@(h.OT ? " OT" : "")</strong>
+                                                    </span>
+                                                }
+                                                else
+                                                {
+
+                                                    <span></span>
+                                                }
+                                                @if (i < awayHistory.Count)
+                                                {
+                                                    var a = awayHistory[i];
+                                                    <span class="@HistoryResultClass(a.TeamGoals, a.OppGoals)" style="text-align:right;">
+                                                        <strong>@a.TeamGoals:@a.OppGoals@(a.OT ? " OT" : "")</strong> vs @a.Opponent
+                                                    </span>
+                                                }
+                                                else
+                                                {
+
+                                                    <span></span>
+                                                }
+                                            </div>
                                         }
                                     }
-                                </span>
-                                <span class="pred-right-col">
-                                    @if (!isPast && pred != null)
+                                </div>
+                            }
+
+                            @* ── Row 3: inputs (left) · result + pts (right) *@
+                            <div class="pcv2-row3">
+                                @* Left: input fields for upcoming, or prediction for past *@
+                                <div class="pcv2-inputs">
+                                    @if (!isPast)
                                     {
-                                        var savedCalcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
-                                        <span class="text-white-50 me-1" style="font-size:.78rem;">
-                                            @($"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}")
-                                        </span>
+                                        <input class="form-control pred-score-input" type="number" min="0" max="20"
+                                               value="@editValues[game.Id].Home"
+                                               @onchange="async e => {
+                                                   editValues[game.Id].Home = PredictionHelper.ParseScore(e);
+                                                   if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                                           editValues[game.Id].Home - editValues[game.Id].Away))
+                                                       editValues[game.Id].IsOvertime = false;
+                                                   await AutoSavePrediction(game.Id);
+                                               }
+                                               " />
+                                        <span class="pred-colon">:</span>
+                                        <input class="form-control pred-score-input" type="number" min="0" max="20"
+                                               value="@editValues[game.Id].Away"
+                                               @onchange="async e => {
+                                                   editValues[game.Id].Away = PredictionHelper.ParseScore(e);
+                                                   if (!PredictionHelper.CanHaveOT(game, resolvedCalcType,
+                                                           editValues[game.Id].Home - editValues[game.Id].Away))
+                                                       editValues[game.Id].IsOvertime = false;
+                                                   await AutoSavePrediction(game.Id);
+                                               }
+                                               " />
+                                        @if (canOT)
+                                        {
+                                            <div class="form-check form-check-inline ms-1 mb-0" title="Overtime?">
+                                                <input class="form-check-input" type="checkbox" id="ot_@(game.Id)"
+                                                       checked="@editValues[game.Id].IsOvertime"
+                                                       @onchange="async e => {
+                                                           editValues[game.Id].IsOvertime = (bool)(e.Value ?? false);
+                                                           await AutoSavePrediction(game.Id);
+                                                       }
+                                                       " />
+                                                <label class="form-check-label small" for="ot_@(game.Id)">OT</label>
+                                            </div>
+                                        }
+                                        @if (justSaved.Contains(game.Id))
+                                        {
+                                            <span class="text-success ms-1">✓</span>
+                                        }
+                                        else if (pred == null)
+                                        {
+                                            <button class="btn btn-sm btn-outline-success ms-1 p-0 px-1"
+                                                    style="font-size:.8rem; line-height:1.4"
+                                                    @onclick="async () => await AutoSavePrediction(game.Id)">
+                                                💾
+                                            </button>
+                                        }
                                     }
-                                    <span class="pred-result">
+                                    else
+                                    {
+                                        @* Past: show nothing in input area — pred shown in row 1 *@
+                                    }
+                                </div>
+
+                                @* Right: actual result + points *@
+                                <div class="pcv2-result-pts">
+                                    <span>
                                         @if (game.HomeScore != null)
                                         {
                                             <strong>@game.HomeScore:@game.AwayScore@(game.IsOvertime ? " OT" : "")</strong>
                                         }
                                         else
                                         {
-                                            <span class="text-white">TBD</span>
+                                            <span class="text-white-50">TBD</span>
                                         }
                                     </span>
-                                    <span class="pred-pts">
+                                    <span>
                                         @if (earnedPoints != null)
                                         {
                                             <span class="badge @PointsBadgeClass(earnedPoints.Value)">@earnedPoints</span>
                                         }
                                         else
                                         {
-                                            <span class="text-white">—</span>
+                                            <span class="text-white-50">—</span>
                                         }
                                     </span>
-                                </span>
+                                </div>
                             </div>
+
                         </div>
                     }
                 </div>
             }
 
-            @* ── My Predicted Group Standings ────────────────────────────────── *@
+            @* ── My Predicted Group Standings ─────────────────────────────── *@
             @if (selectedStage != null && selectedStage.Contains("grupa", StringComparison.OrdinalIgnoreCase))
             {
                 var gamesInGroup = (games ?? new()).Where(g => g.Stage == selectedStage).ToList();
@@ -284,7 +283,7 @@
                             <tbody>
                                 @for (int i = 0; i < sorted.Count; i++)
                                 {
-                                    var row   = sorted[i];
+                                    var row = sorted[i];
                                     var place = i + 1;
                                     <tr class="table-dark">
                                         <td class="team-name-col"><strong>@row.Team</strong></td>
@@ -296,13 +295,13 @@
                                             }
                                             else
                                             {
-                                                var game = FindGame(gamesInGroup, row.Team, col.Team);
-                                                var pred = game != null ? predictions.FirstOrDefault(p => p.GameId == game.Id) : null;
+                                                var g2 = FindGame(gamesInGroup, row.Team, col.Team);
+                                                var pred2 = g2 != null ? predictions.FirstOrDefault(p => p.GameId == g2.Id) : null;
                                                 <td class="text-center score-cell">
-                                                    @if (pred != null && game != null)
+                                                    @if (pred2 != null && g2 != null)
                                                     {
-                                                        int myG  = game.HomeTeam == row.Team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
-                                                        int oppG = game.HomeTeam == row.Team ? pred.PredictedAwayScore : pred.PredictedHomeScore;
+                                                        int myG = g2.HomeTeam == row.Team ? pred2.PredictedHomeScore : pred2.PredictedAwayScore;
+                                                        int oppG = g2.HomeTeam == row.Team ? pred2.PredictedAwayScore : pred2.PredictedHomeScore;
                                                         <span>@myG:@oppG</span>
                                                     }
                                                 </td>
@@ -335,15 +334,16 @@
 @code {
     [Parameter] public string Slug { get; set; } = "";
 
-    Tournament?      tournament;
-    List<Game>?      games;
+    Tournament? tournament;
+    List<Game>? games;
     List<Prediction> predictions = new();
     Dictionary<int, ScoreInput> editValues = new();
     HashSet<int> justSaved = new();
-    string?      selectedStage;
-    string?      saveError;
-    int?         userId;
-    UserGroup?   userGroup;
+    HashSet<int> expandedTeamGameIds = new();
+    string? selectedStage;
+    string? saveError;
+    int? userId;
+    UserGroup? userGroup;
     List<UserGroup> currentUserGroups = new();
 
     List<string> stages => games?
@@ -354,40 +354,6 @@
         .ToList() ?? new();
 
     List<Game> filteredGames => PredictionHelper.FilteredGames(games, selectedStage);
-
-    HashSet<int> expandedTeamGameIds = new();   // tracks which game cards have team history expanded
-
-    void ToggleTeamHistory(int gameId)
-    {
-        if (!expandedTeamGameIds.Remove(gameId))
-            expandedTeamGameIds.Add(gameId);
-    }
-
-    // Returns all played games for a team in this tournament, ordered by date
-    // Result is always from that team's perspective (their goals first)
-    List<(string Opponent, int TeamGoals, int OppGoals, bool OT)> GetTeamHistory(string team)
-    {
-        if (games == null) return new();
-        return games
-            .Where(g =>
-                (g.HomeTeam == team || g.AwayTeam == team) &&
-                g.HomeScore != null && g.AwayScore != null &&
-                g.GameDate < PredictionHelper.LatviaTime)
-            .OrderBy(g => g.GameDate)
-            .Select(g =>
-            {
-                bool isHome = g.HomeTeam == team;
-                string opp = isHome ? g.AwayTeam : g.HomeTeam;
-                int teamGoals = isHome ? g.HomeScore!.Value : g.AwayScore!.Value;
-                int oppGoals = isHome ? g.AwayScore!.Value : g.HomeScore!.Value;
-                return (opp, teamGoals, oppGoals, g.IsOvertime);
-            })
-            .ToList();
-    }
-
-    string HistoryResultClass(int teamGoals, int oppGoals) =>
-        teamGoals > oppGoals ? "text-success" :
-        teamGoals < oppGoals ? "text-danger" : "text-warning";
 
     int totalPoints => predictions
         .Where(p => p.Game?.HomeScore != null && p.Game?.AwayScore != null)
@@ -405,11 +371,38 @@
     }
 
     int StageOrder(string stage) => PredictionHelper.StageOrder(stage);
-
     string PointsBadgeClass(int pts) =>
         PredictionHelper.PointsBadgeClass(pts, PredictionHelper.ResolveCalcType(userGroup, tournament!));
-
     int ParseScore(ChangeEventArgs e) => PredictionHelper.ParseScore(e);
+
+    void ToggleTeamHistory(int gameId)
+    {
+        if (!expandedTeamGameIds.Remove(gameId))
+            expandedTeamGameIds.Add(gameId);
+    }
+
+    List<(string Opponent, int TeamGoals, int OppGoals, bool OT)> GetTeamHistory(string team)
+    {
+        if (games == null) return new();
+        return games
+            .Where(g => (g.HomeTeam == team || g.AwayTeam == team)
+                     && g.HomeScore != null && g.AwayScore != null
+                     && g.GameDate < PredictionHelper.LatviaTime)
+            .OrderBy(g => g.GameDate)
+            .Select(g =>
+            {
+                bool isHome = g.HomeTeam == team;
+                string opp = isHome ? g.AwayTeam : g.HomeTeam;
+                int teamGoals = isHome ? g.HomeScore!.Value : g.AwayScore!.Value;
+                int oppGoals = isHome ? g.AwayScore!.Value : g.HomeScore!.Value;
+                return (opp, teamGoals, oppGoals, g.IsOvertime);
+            })
+            .ToList();
+    }
+
+    string HistoryResultClass(int teamGoals, int oppGoals) =>
+        teamGoals > oppGoals ? "text-success" :
+        teamGoals < oppGoals ? "text-danger" : "text-warning";
 
     protected override async Task OnInitializedAsync()
     {
@@ -417,7 +410,7 @@
         if (tournament == null) return;
 
         userId = await UserContext.GetUserIdAsync();
-        games  = await GameService.GetMatchesByTournamentAsync(tournament.Id);
+        games = await GameService.GetMatchesByTournamentAsync(tournament.Id);
 
         if (userId != null)
         {
@@ -428,9 +421,9 @@
             foreach (var pred in predictions)
                 editValues[pred.GameId] = new ScoreInput
                 {
-                    Home             = pred.PredictedHomeScore,
-                    Away             = pred.PredictedAwayScore,
-                    IsOvertime       = pred.PredictedIsOvertime,
+                    Home = pred.PredictedHomeScore,
+                    Away = pred.PredictedAwayScore,
+                    IsOvertime = pred.PredictedIsOvertime
                 };
         }
     }
@@ -440,14 +433,12 @@
         if (!editValues.ContainsKey(gameId))
             editValues[gameId] = new ScoreInput
             {
-                Home       = pred?.PredictedHomeScore ?? 0,
-                Away       = pred?.PredictedAwayScore ?? 0,
+                Home = pred?.PredictedHomeScore ?? 0,
+                Away = pred?.PredictedAwayScore ?? 0,
                 IsOvertime = pred?.PredictedIsOvertime ?? false
             };
     }
 
-    // ftMode = true  → saves to PredictedHomeFullTime / PredictedAwayFullTime
-    // ftMode = false → saves to PredictedHomeScore / PredictedAwayScore / IsOvertime as before
     async Task AutoSavePrediction(int gameId)
     {
         if (userId == null || tournament == null) return;
@@ -456,7 +447,6 @@
         {
             var s = editValues[gameId];
             await GameService.SavePredictionAsync(userId.Value, gameId, s.Home, s.Away, s.IsOvertime);
-
             predictions = await GameService.GetUserPredictionsByTournamentAsync(userId.Value, tournament.Id);
 
             justSaved.Add(gameId);
@@ -465,26 +455,18 @@
             justSaved.Remove(gameId);
             StateHasChanged();
         }
-        catch
-        {
-            saveError = "Failed to save. Please try again.";
-        }
+        catch { saveError = "Failed to save. Please try again."; }
     }
-
-    // ── Group table helpers ───────────────────────────────────────────────────
 
     record TeamStanding(string Team, int Points, int GoalDiff, int GoalsFor);
 
     List<string> GetTeams(List<Game> gamesInGroup) =>
         gamesInGroup.SelectMany(g => new[] { g.HomeTeam, g.AwayTeam })
-             .Where(t => !string.IsNullOrEmpty(t))
-             .Distinct()
-             .ToList();
+             .Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
 
     Game? FindGame(List<Game> gamesInGroup, string a, string b) =>
         gamesInGroup.FirstOrDefault(g =>
-            (g.HomeTeam == a && g.AwayTeam == b) ||
-            (g.HomeTeam == b && g.AwayTeam == a));
+            (g.HomeTeam == a && g.AwayTeam == b) || (g.HomeTeam == b && g.AwayTeam == a));
 
     string GoalDiffClass(int diff) => diff switch { > 0 => "text-success", < 0 => "text-danger", _ => "" };
 
@@ -499,13 +481,12 @@
             {
                 var pred = predictions.FirstOrDefault(p => p.GameId == g.Id);
                 if (pred == null) continue;
-                int myG  = g.HomeTeam == team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
+                int myG = g.HomeTeam == team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
                 int oppG = g.HomeTeam == team ? pred.PredictedAwayScore : pred.PredictedHomeScore;
                 gf += myG; ga += oppG;
                 if (isHockey)
                     pts += myG > oppG ? (pred.PredictedIsOvertime ? 2 : 3)
-                         : myG < oppG ? (pred.PredictedIsOvertime ? 1 : 0)
-                         : 1;
+                         : myG < oppG ? (pred.PredictedIsOvertime ? 1 : 0) : 1;
                 else
                     pts += myG > oppG ? 3 : myG == oppG ? 1 : 0;
             }
