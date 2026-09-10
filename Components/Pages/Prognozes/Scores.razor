@@ -7,7 +7,7 @@
 @inject UserContextService UserContext
 @inject AuthenticationStateProvider AuthStateProvider
 
-<h3>⚽ Scores — @(tournament?.Name ?? "...")</h3>
+<h3>@tournament?.Icon Scores — @(tournament?.Name ?? "...")</h3>
 
 @if (tournament == null)
 {

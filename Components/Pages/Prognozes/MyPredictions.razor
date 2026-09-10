@@ -474,6 +474,8 @@
     {
         var calcType = PredictionHelper.ResolveCalcType(userGroup, tournament!);
         bool isHockey = calcType == "Hockey" || calcType == "Hockey2";
+        bool isVolleyball = calcType == "Volleyball";
+
         return teams.Select(team =>
         {
             int pts = 0, gf = 0, ga = 0;
@@ -484,9 +486,10 @@
                 int myG = g.HomeTeam == team ? pred.PredictedHomeScore : pred.PredictedAwayScore;
                 int oppG = g.HomeTeam == team ? pred.PredictedAwayScore : pred.PredictedHomeScore;
                 gf += myG; ga += oppG;
-                if (isHockey)
-                    pts += myG > oppG ? (pred.PredictedIsOvertime ? 2 : 3)
-                         : myG < oppG ? (pred.PredictedIsOvertime ? 1 : 0) : 1;
+                if (isVolleyball)
+                    pts += myG > oppG ? (oppG <= 1 ? 3 : 2) : (myG == 2 ? 1 : 0);
+                else if (isHockey)
+                    pts += myG > oppG ? (pred.PredictedIsOvertime ? 2 : 3) : myG < oppG ? (pred.PredictedIsOvertime ? 1 : 0) : 1;
                 else
                     pts += myG > oppG ? 3 : myG == oppG ? 1 : 0;
             }

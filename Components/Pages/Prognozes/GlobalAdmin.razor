@@ -37,6 +37,8 @@
                     <option value="Football2">⚽ Football2</option>
                     <option value="Hockey2">🏒 Hockey2</option>
                     <option value="Football3">⚽ Football3</option>
+                    <option value="Volleyball">🏐 Volleyball</option>
+                    <option value="TableTennis">🏓 TableTennis</option>
                 </select>
                 <div class="text-muted mt-1" style="font-size:.8rem">
                     @if (tCalcType == "Hockey")
@@ -50,6 +52,14 @@
                     else if (tCalcType == "Football2")
                     {
                         <span>Football2: Groups — exact home/away=+2, off-by-1=+1, correct diff=+1, correct winner/tie=+1 (max 6). Playoffs — same as Hockey2 with OT checkbox (max 6).</span>
+                    }
+                    else if (tCalcType == "Volleyball")
+                    {
+                        <span>Volleyball: exact score=8, correct winner off by 1 set=5, off by 2 sets=3, wrong winner but both 3:2=2, otherwise wrong=0. Max 8 pts.</span>
+                    }
+                    else if (tCalcType == "TableTennis")
+                    {
+                        <span>Volleyball: exact score=8, correct winner off by 1 set=6, off by 2 sets=4, off by 3 sets=2, wrong winner but both 4:3=2, otherwise wrong=0. Max 8 pts.</span>
                     }
                     else
                     {

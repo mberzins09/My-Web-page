@@ -11,11 +11,11 @@
     @if (showCompetitionNav && currentSlug != null)
     {
         <div class="competition-links d-flex gap-2 gap-md-3 align-items-center overflow-auto">
-            <span class="navbar-text text-warning fw-bold me-1 flex-shrink-0 d-none d-sm-inline">@tournamentIcon</span>
+            <span class="navbar-text text-warning fw-bold me-1 flex-shrink-0 d-none d-sm-inline">@tournamentName</span>
             <a href="/prognozes/@currentSlug/leaderboard"       class="nav-link text-light flex-shrink-0">🏆 <span class="d-none d-sm-inline">Leaderboard</span></a>
             <a href="/prognozes/@currentSlug/mypredictions"     class="nav-link text-light flex-shrink-0">📋 <span class="d-none d-sm-inline">My Predictions</span></a>
             <a href="/prognozes/@currentSlug/userpredictions"   class="nav-link text-light flex-shrink-0">👥 <span class="d-none d-sm-inline">Others</span></a>
-            <a href="/prognozes/@currentSlug/scores"            class="nav-link text-light flex-shrink-0">⚽ <span class="d-none d-sm-inline">Scores</span></a>
+            <a href="/prognozes/@currentSlug/scores"            class="nav-link text-light flex-shrink-0">@tournamentIcon <span class="d-none d-sm-inline">Scores</span></a>
             <a href="/prognozes/@currentSlug/groups"            class="nav-link text-light flex-shrink-0">🗂️ <span class="d-none d-sm-inline">Groups</span></a>
             @if (isAdmin)
             {
@@ -48,6 +48,7 @@
     bool    isAdmin            = false;
     string  username           = "";
     string? currentSlug;
+    string  tournamentName     = "";
     string  tournamentIcon     = "";
 
     protected override async Task OnInitializedAsync()
@@ -91,10 +92,12 @@
         if (currentSlug != null)
         {
             var tournament = await GameService.GetTournamentBySlugAsync(currentSlug);
-            tournamentIcon = tournament != null ? $"{tournament.Icon} {tournament.Name}" : "";
+            tournamentName = tournament != null ? $"{tournament.Icon} {tournament.Name}" : "";
+            tournamentIcon = tournament != null ? $"{tournament.Icon}" : "";
         }
         else
         {
+            tournamentName = "";
             tournamentIcon = "";
         }
     }
