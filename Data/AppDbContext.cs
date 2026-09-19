@@ -20,6 +20,12 @@ namespace MartinsWeb.Data
         public DbSet<ApiTeamMapping> ApiTeamMappings { get; set; }
         public DbSet<ApiSyncLog> ApiSyncLogs { get; set; }
 
+        // Komandu cempis
+        public DbSet<SeptemberPlayer> SeptemberPlayers { get; set; } = null!;
+        public DbSet<TeamEntry> TeamEntries { get; set; } = null!;
+        public DbSet<TeamPlayerEntry> TeamPlayerEntries { get; set; } = null!;
+
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // ── Prediction ────────────────────────────────────────────────────
@@ -96,6 +102,15 @@ namespace MartinsWeb.Data
                     .WithMany()
                     .HasForeignKey(m => m.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── Komandu cempis ───────────────────────────────────────────────
+            modelBuilder.Entity<TeamPlayerEntry>(e =>
+            {
+                e.HasOne(p => p.Team)
+                 .WithMany(t => t.Players)
+                 .HasForeignKey(p => p.TeamEntryId)
+                 .OnDelete(DeleteBehavior.Cascade);
             });
         }
     }
