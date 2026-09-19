@@ -1,0 +1,183 @@
+﻿@page "/komandas"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject TeamService TeamService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<h3>🏓 Komandu sacensības 2026</h3>
+
+@if (loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <AuthorizeView Roles="Admin">
+        <div class="mb-3 d-flex gap-2 align-items-center">
+            <button class="btn btn-sm btn-outline-warning"
+                    @onclick="RefetchTeams" disabled="@refetching">
+                @(refetching ? "Fetching..." : "🔄 Refetch Teams")
+            </button>
+            @if (refetchMessage != null)
+            {
+                <span class="text-white-50" style="font-size:.85rem;">@refetchMessage</span>
+            }
+        </div>
+    </AuthorizeView>
+
+    @if (errorMessage != null)
+    {
+        <p class="text-danger">@errorMessage</p>
+    }
+
+    <div class="pred-grid">
+        @foreach (var (team, place) in teams.Select((t, i) => (t, i + 1)))
+        {
+            <div class="tt-card pred-card-v2" style="cursor:pointer;"
+                 @onclick="() => ToggleTeam(team.Id)">
+
+                @* Header row: place · name · points *@
+                <div class="pcv2-row2" style="cursor:pointer;">
+                    <span style="font-size:.8rem; color:#aaa; flex-shrink:0; margin-right:6px;">
+                        @place.
+                    </span>
+                    <span class="pcv2-teams">@team.TeamName</span>
+                    <span style="flex-shrink:0; font-weight:700; color:#fff; margin-left:6px;">
+                        @team.Points pts
+                    </span>
+                    <span class="pcv2-expand-btn ms-2">
+                        @(expandedTeams.Contains(team.Id) ? "▲" : "▼")
+                    </span>
+                </div>
+
+                @* Expanded: player list *@
+                @if (expandedTeams.Contains(team.Id))
+                {
+                    <div class="pcv2-history" @onclick:stopPropagation="true">
+                        @foreach (var player in team.Players)
+                        {
+                            <div class="pcv2-history-row align-items-center" style="padding:4px 0;">
+                                <span style="flex:1; @(player.IsTop3 ? "color:#fff; font-weight:600;" : "color:#888;")">
+                                    @player.Name @player.Surname
+                                    @if (player.IsManualEdit)
+                                    {
+                                        <span class="text-warning ms-1" title="Manually edited">✎</span>
+                                    }
+                                </span>
+
+                                @if (editingPlayerId == player.ApiPlayerId)
+                                {
+                                    @* Edit mode *@
+                                    <div class="d-flex align-items-center gap-1" style="flex-shrink:0;">
+                                        <input class="form-control form-control-sm bg-dark text-white border-secondary"
+                                               style="width:90px;"
+                                               type="number"
+                                               @bind="editValue"
+                                               @bind:event="oninput" />
+                                        <button class="btn btn-sm btn-success p-0 px-2"
+                                                @onclick="() => SaveEdit(player)">
+                                            ✓
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary p-0 px-2"
+                                                @onclick="CancelEdit">
+                                            ✕
+                                        </button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span style="flex-shrink:0; min-width:60px; text-align:right;
+                                        @(player.IsTop3 ? "color:#ffc107; font-weight:700;" : "color:#888;")">
+                                        @player.PointsWithBonus
+                                    </span>
+                                    <AuthorizeView Roles="Admin">
+                                        <button class="btn btn-link btn-sm p-0 ms-2 text-white-50"
+                                                style="font-size:.75rem;"
+                                                @onclick="() => StartEdit(player)">
+                                            ✎
+                                        </button>
+                                    </AuthorizeView>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    List<TeamViewModel> teams = new();
+    HashSet<int> expandedTeams = new();
+    bool loading = true;
+    bool refetching = false;
+    string? errorMessage;
+    string? refetchMessage;
+
+    int? editingPlayerId;
+    decimal editValue;
+    PlayerViewModel? editingPlayer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await TeamService.InitialFetchAsync();
+            teams = await TeamService.GetTeamsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load: {ex.Message}";
+        }
+        finally { loading = false; }
+    }
+
+    void ToggleTeam(int teamId)
+    {
+        if (!expandedTeams.Remove(teamId))
+            expandedTeams.Add(teamId);
+    }
+
+    void StartEdit(PlayerViewModel player)
+    {
+        editingPlayerId = player.ApiPlayerId;
+        editValue = player.PointsWithBonus;
+        editingPlayer = player;
+    }
+
+    void CancelEdit()
+    {
+        editingPlayerId = null;
+        editingPlayer = null;
+    }
+
+    async Task SaveEdit(PlayerViewModel player)
+    {
+        if (editingPlayerId == null) return;
+        await TeamService.UpdatePlayerPointsAsync(
+            player.ApiPlayerId, player.Name, player.Surname, editValue);
+        teams = await TeamService.GetTeamsAsync();
+        editingPlayerId = null;
+        editingPlayer = null;
+    }
+
+    async Task RefetchTeams()
+    {
+        refetching = true;
+        refetchMessage = null;
+        errorMessage = null;
+        try
+        {
+            int added = await TeamService.RefetchTeamsAsync();
+            teams = await TeamService.GetTeamsAsync();
+            refetchMessage = added > 0
+                ? $"Added {added} new team(s)."
+                : "No new teams found.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Refetch failed: {ex.Message}";
+        }
+        finally { refetching = false; }
+    }
+}

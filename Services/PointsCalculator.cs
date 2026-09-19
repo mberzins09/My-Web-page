@@ -21,6 +21,10 @@ namespace MartinsWeb.Services
                     => CalculateFootball2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage),
                 var t when t.Equals("Football3", StringComparison.OrdinalIgnoreCase)
                     => CalculateFootball3(predHome, predAway, actualHome, actualAway, stage),
+                var t when t.Equals("Volleyball", StringComparison.OrdinalIgnoreCase)
+                    => CalculateVolleyball(predHome, predAway, actualHome, actualAway, stage),
+                var t when t.Equals("TableTennis", StringComparison.OrdinalIgnoreCase)
+                    => CalculateTableTennis(predHome, predAway, actualHome, actualAway, stage),
                 _ => CalculateFootball(predHome, predAway, actualHome, actualAway, stage)
             };
         }
@@ -203,6 +207,78 @@ namespace MartinsWeb.Services
                 // Playoff: identical to Hockey2 (OT checkbox, no ties)
                 return CalculateHockey2(predHome, predAway, predOT, actualHome, actualAway, actualOT, stage);
             }
+        }
+
+        /// <summary>
+        /// Volleyball scoring (no draws, no OT — winner is always the side with 3 sets):
+        ///   8 pts — exact score
+        ///   5 pts — correct winner, off by 1 set
+        ///   3 pts — correct winner, off by 2 sets
+        ///   2 pts — wrong winner, but BOTH predicted and actual were 3:2 nail-biters
+        ///           (predicted 3:2, actual 2:3, or vice versa) — close call, wrong side
+        ///   0 pts — any other wrong winner
+        /// </summary>
+        public static int CalculateVolleyball(int predHome, int predAway, int actualHome, int actualAway, string stage)
+        {
+            bool correctWinner = Math.Sign(predHome - predAway) == Math.Sign(actualHome - actualAway);
+
+            // Loser's set count = the smaller of the two scores (winner always has 3).
+            int predLoserSets = Math.Min(predHome, predAway);
+            int actualLoserSets = Math.Min(actualHome, actualAway);
+            int diff = Math.Abs(predLoserSets - actualLoserSets);
+
+            if (correctWinner)
+            {
+                return diff switch
+                {
+                    0 => 8,
+                    1 => 5,
+                    _ => 3 // diff == 2, the only case left (0 vs 2)
+                };
+            }
+
+            // Wrong winner, but both matches were tiebreakers — small consolation.
+            if (predLoserSets == 2 && actualLoserSets == 2)
+                return 2;
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Table tennis scoring (no draws, no OT — winner is always the side with 4 sets):
+        ///   8 pts — exact score
+        ///   6 pts — correct winner, off by 1 set
+        ///   4 pts — correct winner, off by 2 sets
+        ///   2 pts - correct winner, off by 3 sets 
+        ///   2 pts — wrong winner, but BOTH predicted and actual were 4:3 nail-biters
+        ///           (predicted 4:3, actual 3:4, or vice versa) — close call, wrong side
+        ///   0 pts — any other wrong winner
+        /// </summary>
+        public static int CalculateTableTennis(int predHome, int predAway, int actualHome, int actualAway, string stage)
+        {
+            bool correctWinner = Math.Sign(predHome - predAway) == Math.Sign(actualHome - actualAway);
+
+            // Loser's set count = the smaller of the two scores (winner always has 4).
+            int predLoserSets = Math.Min(predHome, predAway);
+            int actualLoserSets = Math.Min(actualHome, actualAway);
+            int diff = Math.Abs(predLoserSets - actualLoserSets);
+
+            if (correctWinner)
+            {
+                return diff switch
+                {
+                    0 => 8,
+                    1 => 6,
+                    2 => 4,
+                    _ => 2
+                };
+            }
+
+            // Wrong winner, but both matches were tiebreakers — small consolation.
+            if (predLoserSets == 3 && actualLoserSets == 3)
+                return 2;
+
+            return 0;
         }
     }
 }

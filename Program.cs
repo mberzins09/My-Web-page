@@ -4,10 +4,9 @@ using MartinsWeb.Models;
 using MartinsWeb.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
-using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +20,7 @@ builder.Services.AddScoped<LgtfRankingService>();
 builder.Services.AddScoped<LgtfImportService>();
 builder.Services.AddScoped<LgtfAdminService>();
 builder.Services.AddScoped<ApiSportsService>();
+builder.Services.AddTransient<TeamService>();
 builder.Services.AddHostedService<ApiScoreSyncService>();
 builder.Services.AddHttpClient();
 

@@ -55,6 +55,7 @@ namespace MartinsWeb.Services
             int max = calcType switch
             {
                 "Hockey" => 10,
+                "Volleyball" or "TableTennis" => 8,
                 "Hockey2" or "Football2" => 7,
                 "Football3" => 5,
                 "Football" => 3,

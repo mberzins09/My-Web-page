@@ -142,6 +142,8 @@ else
     List<TeamStanding> ComputeStandings(List<string> teams, List<Game> games)
     {
         bool isHockey = tournament?.PointsCalculationType == "Hockey";
+        bool isVolleyball = tournament?.PointsCalculationType == "Volleyball";
+
         return teams.Select(team =>
         {
             int pts = 0, gf = 0, ga = 0;
@@ -152,10 +154,11 @@ else
                 int myG  = g.HomeTeam == team ? g.HomeScore!.Value : g.AwayScore!.Value;
                 int oppG = g.HomeTeam == team ? g.AwayScore!.Value : g.HomeScore!.Value;
                 gf += myG; ga += oppG;
-                if (isHockey)
-                    pts += myG > oppG ? (g.IsOvertime ? 2 : 3)
-                         : myG < oppG ? (g.IsOvertime ? 1 : 0)
-                         : 1;
+
+                if (isVolleyball)
+                    pts += myG > oppG ? (oppG <= 1 ? 3 : 2) : (myG == 2 ? 1 : 0);
+                else if (isHockey)
+                    pts += myG > oppG ? (g.IsOvertime ? 2 : 3) : myG < oppG ? (g.IsOvertime ? 1 : 0) : 1;
                 else
                     pts += myG > oppG ? 3 : myG == oppG ? 1 : 0;
             }
