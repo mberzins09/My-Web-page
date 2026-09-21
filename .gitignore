@@ -198,3 +198,7 @@ __pycache__/
 
 # Windows thumbnail cache files
 Thumbs.db
+
+*.db
+*.db-wal
+*.db-shm
