@@ -40,10 +40,10 @@ namespace MartinsWeb.Services
 
             var cmd = con.CreateCommand();
             cmd.CommandText = @"
-                SELECT id, name, surname, birth_date, key_name, Gender
-                FROM players
-                WHERE name LIKE $q OR surname LIKE $q
-                ORDER BY surname, name
+                SELECT Id, COALESCE(Name, ''), COALESCE(Surname, ''), BirthDate, KeyName, Gender
+                FROM PlayerDB
+                WHERE Name LIKE $q OR Surname LIKE $q
+                ORDER BY Surname, Name
                 LIMIT 20";
             cmd.Parameters.AddWithValue("$q", $"%{query}%");
 
@@ -60,7 +60,7 @@ namespace MartinsWeb.Services
             await con.OpenAsync();
 
             var cmd = con.CreateCommand();
-            cmd.CommandText = "SELECT id, name, surname, birth_date, key_name, Gender FROM players WHERE id = $id";
+            cmd.CommandText = "SELECT Id, COALESCE(Name, ''), COALESCE(Surname, ''), BirthDate, KeyName, Gender FROM PlayerDB WHERE Id = $id";
             cmd.Parameters.AddWithValue("$id", id);
 
             await using var r = await cmd.ExecuteReaderAsync();
@@ -226,8 +226,8 @@ namespace MartinsWeb.Services
                        p2.name, p2.surname,
                        c.coef
                 FROM   games g
-                LEFT JOIN players p1 ON p1.id = g.player1_id
-                LEFT JOIN players p2 ON p2.id = g.player2_id
+                LEFT JOIN PlayerDB p1 ON p1.Id = g.player1_id
+                LEFT JOIN PlayerDB p2 ON p2.Id = g.player2_id
                 JOIN   competitions c ON c.id = g.competition_id
                 WHERE  g.competition_id = $cid
                   AND  (g.player1_id = $pid OR g.player2_id = $pid)";
@@ -260,8 +260,8 @@ namespace MartinsWeb.Services
                        p2.name, p2.surname,
                        c.coef
                 FROM   games g
-                LEFT JOIN players p1 ON p1.id = g.player1_id
-                LEFT JOIN players p2 ON p2.id = g.player2_id
+                LEFT JOIN PlayerDB p1 ON p1.Id = g.player1_id
+                LEFT JOIN PlayerDB p2 ON p2.Id = g.player2_id
                 JOIN   competitions c ON c.id = g.competition_id
                 WHERE  g.id = $id";
             cmd.Parameters.AddWithValue("$id", gameId);
