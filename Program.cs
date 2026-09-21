@@ -20,6 +20,8 @@ builder.Services.AddScoped<LgtfRankingService>();
 builder.Services.AddScoped<LgtfImportService>();
 builder.Services.AddScoped<LgtfAdminService>();
 builder.Services.AddScoped<ApiSportsService>();
+builder.Services.AddScoped<WinsService>();
+builder.Services.AddScoped<UserProfileService>();
 builder.Services.AddTransient<TeamService>();
 builder.Services.AddHostedService<ApiScoreSyncService>();
 builder.Services.AddHttpClient();
@@ -150,6 +152,29 @@ app.MapPost("/api/logout", async (HttpContext context) =>
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Ok();
 });
+
+app.MapGet("/api/refresh-signin", async (HttpContext ctx, AppDbContext db, string? returnUrl) =>
+{
+    if (!int.TryParse(ctx.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id))
+        return Results.Redirect("/login");
+    var user = await db.Users.FindAsync(id);
+    if (user == null) return Results.Redirect("/login");
+
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.Name, user.Username),
+        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new(ClaimTypes.Role, user.IsAdmin ? "Admin" : "User")
+    };
+    var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+    await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal,
+        new AuthenticationProperties { IsPersistent = true, AllowRefresh = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7) });
+
+    var target = !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith('/')
+                 && !returnUrl.StartsWith("//") && !returnUrl.StartsWith("/\\")
+                 ? returnUrl : "/";
+    return Results.LocalRedirect(target);
+}).RequireAuthorization();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();

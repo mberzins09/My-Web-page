@@ -1,0 +1,18 @@
+﻿@if (Count > 0)
+{
+    <span class="ms-1" style="white-space:nowrap" title="@Count tournament win@(Count == 1 ? "" : "s")">
+        @if (Count <= MaxCups)
+        {
+            @(string.Concat(Enumerable.Repeat("🏆", Count)))
+        }
+        else
+        {
+            <span>🏆×@Count</span>
+        }
+    </span>
+}
+
+@code {
+    [Parameter] public int Count { get; set; }
+    [Parameter] public int MaxCups { get; set; } = 4;
+}

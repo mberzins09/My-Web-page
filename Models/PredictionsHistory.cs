@@ -15,8 +15,8 @@ namespace MartinsWeb.Models
         public string  TournamentName { get; set; } = "";
         public DateTime CompletedAt   { get; set; } = DateTime.UtcNow;
 
-        public ICollection<PredictionsHistoryEntry> Entries { get; set; }
-            = new List<PredictionsHistoryEntry>();
+        public ICollection<PredictionsHistoryEntry> Entries { get; set; } = [];
+        public bool WinsAwarded { get; set; }
     }
 
     /// <summary>One participant row inside a PredictionsHistory record.</summary>

@@ -16,6 +16,17 @@ namespace MartinsWeb.Services
         public async Task<Tournament?> GetTournamentBySlugAsync(string slug)
             => await _db.Tournaments.FirstOrDefaultAsync(t => t.Slug == slug);
 
+        /// Takes back the wins that were awarded for these histories.
+        private async Task RevokeWinsAsync(IEnumerable<PredictionsHistory> histories)
+        {
+            foreach (var h in histories.Where(h => h.WinsAwarded))
+                foreach (var uid in WinsService.WinnerIds(h))   // needs h.Entries loaded
+                {
+                    var u = await _db.Users.FindAsync(uid);
+                    if (u != null) u.TournamentsWon = Math.Max(0, u.TournamentsWon - 1);
+                }
+        }
+
         /// <summary>
         /// Creates a new tournament. Returns false if the slug is already taken.
         /// </summary>
@@ -498,6 +509,17 @@ namespace MartinsWeb.Services
         {
             var tournament = await _db.Tournaments.FindAsync(tournamentId) ?? throw new InvalidOperationException("Tournament not found.");
 
+            // Re-completing replaces earlier histories of this tournament instead of duplicating them
+            var old = await _db.PredictionsHistories
+                .Include(h => h.Entries)
+                .Where(h => h.TournamentId == tournamentId)
+                .ToListAsync();
+            if (old.Any())
+            {
+                await RevokeWinsAsync(old);
+                _db.PredictionsHistories.RemoveRange(old);
+            }
+
             var userGroups = await GetUserGroupsByTournamentAsync(tournamentId);
             var results = new List<PredictionsHistory>();
 
@@ -589,8 +611,13 @@ namespace MartinsWeb.Services
 
         public async Task DeleteHistoryAsync(int historyId)
         {
-            var h = await _db.PredictionsHistories.FindAsync(historyId);
-            if (h != null) { _db.PredictionsHistories.Remove(h); await _db.SaveChangesAsync(); }
+            var h = await _db.PredictionsHistories
+                .Include(x => x.Entries)
+                .FirstOrDefaultAsync(x => x.Id == historyId);
+            if (h == null) return;
+            await RevokeWinsAsync(new[] { h });
+            _db.PredictionsHistories.Remove(h);
+            await _db.SaveChangesAsync();
         }
 
         /// <summary>
@@ -735,4 +762,6 @@ namespace MartinsWeb.Services
             }).ToList();
         }
     }
+
+
 }
