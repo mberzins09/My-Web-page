@@ -7,6 +7,7 @@
 @inject AuthService AuthService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserContextService UserContext
+@inject WinsService Wins
 
 <AuthorizeView Roles="Admin">
     <Authorized>
@@ -768,6 +769,10 @@
                 ? $"Saved to history (#{results[0].Id}) with {results[0].Entries.Count} participant(s)."
                 : $"Saved {results.Count} group histories: " +
                   string.Join(", ", results.Select(h => $"\"{h.TournamentName}\" ({h.Entries.Count})"));
+
+            var awarded = await Wins.AwardPendingWinsAsync();
+            if (awarded.Count > 0)
+                completeMessage += " 🏆 " + string.Join(", ", awarded);
         }
         catch (Exception ex)
         {

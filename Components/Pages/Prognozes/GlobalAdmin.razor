@@ -6,6 +6,9 @@
 @inject GameService GameService
 @inject AuthService AuthService
 @inject UserContextService UserContext
+@inject WinsService Wins
+@inject UserProfileService Profile
+@inject IJSRuntime JS
 
 <AuthorizeView Roles="Admin">
     <Authorized>
@@ -139,7 +142,11 @@
             <table class="table table-sm" style="min-width:480px">
                 <thead>
                     <tr class="table-primary">
-                        <th>Username</th><th>Email</th><th>Admin</th><th></th>
+                            <th>Username</th>
+                            <th>Email</th>
+                            <th>Wins</th>
+                            <th>Admin</th>
+                            <th></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -150,6 +157,7 @@
                             <tr class="table-warning">
                                 <td><input class="form-control form-control-sm" @bind="editUsername" /></td>
                                 <td><input class="form-control form-control-sm" @bind="editEmail" /></td>
+                                <td><input type="number" min="0" class="form-control form-control-sm" style="width:70px" @bind="editWins" /></td>
                                 <td>@(user.IsAdmin ? "✅" : "")</td>
                                 <td>
                                     <button class="btn btn-sm btn-primary me-1" @onclick="SaveUserEdit">Save</button>
@@ -157,7 +165,7 @@
                                 </td>
                             </tr>
                             <tr class="table-warning">
-                                <td colspan="4" style="padding-top:0">
+                                <td colspan="5" style="padding-top:0">
                                     <div class="d-flex align-items-center gap-2 mt-1">
                                         <input class="form-control form-control-sm" style="max-width:280px"
                                                @bind="editPassword"
@@ -175,6 +183,7 @@
                             <tr class="table-dark">
                                 <td>@user.Username</td>
                                 <td>@user.Email</td>
+                                <td>@user.TournamentsWon 🏆</td>
                                 <td>@(user.IsAdmin ? "✅" : "")</td>
                                 <td class="d-flex flex-wrap gap-1">
                                     <button class="btn btn-sm btn-outline-primary"
@@ -200,7 +209,14 @@
             </table>
             </div>
         }
-        <button class="btn btn-sm btn-warning" @onclick="RunMigration">Migrate FT Predictions</button>
+        <div class="mt-3 d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-warning" @onclick="AwardPending">🏆 Award pending wins</button>
+            <button class="btn btn-sm btn-outline-danger" @onclick="RecalcAll">↻ Recalculate all wins from history</button>
+        </div>
+        @foreach (var line in winsLog)
+        {
+            <div class="text-success" style="font-size:.85rem">@line</div>
+        }
     </Authorized>
     <NotAuthorized>
         <p class="text-danger">Access denied.</p>
@@ -212,11 +228,24 @@
     List<User>? users;
     int currentUserId;
     bool migrationDone = false;
+    int editWins;
+    string? userError;
+    List<string> winsLog = new();
 
-    async Task RunMigration()
+    async Task AwardPending()
     {
-        await GameService.MigrateFullTimePredictionsAsync();
-        migrationDone = true;
+        winsLog = await Wins.AwardPendingWinsAsync();
+        if (winsLog.Count == 0) winsLog.Add("Nothing pending.");
+        await LoadData();
+    }
+
+    async Task RecalcAll()
+    {
+        if (!await JS.InvokeAsync<bool>("confirm",
+            "This resets ALL win counts to what history says and overwrites manual edits. Continue?")) return;
+        await Wins.RecalculateAllAsync();
+        winsLog = new() { "Recalculated from history." };
+        await LoadData();
     }
 
     // ── Tournament form ────────────────────────────────────────────────────────
@@ -313,6 +342,8 @@
         editEmail     = user.Email;
         editPassword  = "";
         userMessage   = null;
+        editWins = user.TournamentsWon;
+        userError = null;
     }
 
     void CancelUserEdit()
@@ -324,7 +355,16 @@
 
     async Task SaveUserEdit()
     {
-        await AuthService.UpdateUserAsync(editingUserId!.Value, editUsername.Trim(), editEmail.Trim(), editPassword);
+        userError = userMessage = null;
+        var id = editingUserId!.Value;
+        var name = editUsername.Trim();
+        var email = editEmail.Trim();
+
+        if (await Profile.IsUsernameTakenAsync(name, id)) { userError = "Username already taken."; return; }
+        if (await Profile.IsEmailTakenAsync(email, id)) { userError = "Email already used."; return; }
+
+        await AuthService.UpdateUserAsync(id, name, email, editPassword);
+        await Wins.SetWinsAsync(id, editWins);
         userMessage = "Saved!";
         await LoadData();
         await Task.Delay(1500);

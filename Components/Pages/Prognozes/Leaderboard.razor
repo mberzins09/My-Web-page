@@ -68,10 +68,10 @@ else
                             @{
                                 var groupIdParam = selectedGroupId.HasValue ? $"&groupId={selectedGroupId}" : "";
                             }
-                            <a href="/prognozes/@Slug/user/@entry.User.Id?@groupIdParam"
-                               class="text-black">
+                            <a href="/prognozes/@Slug/user/@entry.User.Id?@groupIdParam" class="text-black">
                                 @entry.User.Username @(entry.User.Id == currentUserId ? "👤" : "")
                             </a>
+                            <WinsCups Count="entry.User.TournamentsWon" />
                         </td>
                         <td><strong>@entry.Points</strong></td>
                         <td>@(perfects > 0 ? $"⭐ {perfects}" : "—")</td>

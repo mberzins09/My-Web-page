@@ -4,10 +4,9 @@
 @using MartinsWeb.Models
 @inject GameService GameService
 @inject NavigationManager Nav
-
-<div class="mb-3">
-    <button class="btn btn-sm btn-outline-secondary" @onclick="GoBack">← Back</button>
-</div>
+@inject AuthService AuthService
+@inject UserProfileService Profile
+@inject UserContextService UserContext
 
 @if (tournament == null || targetUser == null)
 {
@@ -15,8 +14,53 @@
 }
 else
 {
-    <h4 class="mb-1">@targetUser.Username</h4>
+    <h4 class="mb-1">@targetUser.Username <WinsCups Count="targetUser.TournamentsWon" /></h4>
     <p class="text-white-50 mb-3" style="font-size:.85rem">@tournament.Name</p>
+
+    @if (isOwnPage)
+    {
+        <div class="mb-4">
+            <button class="btn btn-sm btn-outline-dark" @onclick="() => showEdit = !showEdit">
+                ✏️ @(showEdit ? "Close" : "Edit profile")
+            </button>
+
+            @if (showEdit)
+            {
+                <div class="tt-card p-3 mt-2" style="max-width:420px">
+                    <label class="form-label mb-1">Username</label>
+                    <input class="form-control form-control-sm mb-2" @bind="editUsername" />
+
+                    <label class="form-label mb-1">Email</label>
+                    <input type="email" class="form-control form-control-sm mb-2" @bind="editEmail" />
+
+                    <label class="form-label mb-1">
+                        New password
+                        <span class="text-white-50" style="font-size:.8rem">(blank = keep current)</span>
+                    </label>
+                    <input type="password" class="form-control form-control-sm mb-1" autocomplete="new-password" @bind="editNewPassword" />
+                    <input type="password" class="form-control form-control-sm mb-2" autocomplete="new-password"
+                           placeholder="Repeat new password" @bind="editNewPassword2" />
+
+                    <label class="form-label mb-1">
+                        Current password
+                        <span class="text-white-50" style="font-size:.8rem">(required to save)</span>
+                    </label>
+                    <input type="password" class="form-control form-control-sm mb-2" autocomplete="current-password" @bind="editCurrentPassword" />
+
+                    @if (editError != null)
+                    {
+                        <p class="text-danger mb-2" style="font-size:.85rem">@editError</p>
+                    }
+                    @if (editMessage != null)
+                    {
+                        <p class="text-success mb-2" style="font-size:.85rem">@editMessage</p>
+                    }
+
+                    <button class="btn btn-sm btn-primary" @onclick="SaveProfile" disabled="@saving">Confirm</button>
+                </div>
+            }
+        </div>
+    }
 
     @* ── Tournament History ──────────────────────────────────────────── *@
     @if (historyEntries.Any())
@@ -200,6 +244,57 @@ else
     string stageFilter  = "all";
     string sortBy       = "date";
     bool   sortDesc     = false;
+    const int MinPasswordLength = 4;   // match your register page
+    int viewerId;
+    bool isOwnPage => viewerId != 0 && viewerId == UserId;
+    bool showEdit, saving;
+    string editUsername = "", editEmail = "", editNewPassword = "", editNewPassword2 = "", editCurrentPassword = "";
+    string? editError, editMessage;
+
+    async Task SaveProfile()
+    {
+        editError = editMessage = null;
+        var newName = editUsername.Trim();
+        var newEmail = editEmail.Trim();
+
+        if (newName.Length < 2) { editError = "Username is too short."; return; }
+        if (!System.Net.Mail.MailAddress.TryCreate(newEmail, out var addr) || addr.Address != newEmail)
+        { editError = "Email address is not valid."; return; }
+        var newPw = !string.IsNullOrEmpty(editNewPassword);
+        if (newPw && editNewPassword.Length < MinPasswordLength)
+        { editError = $"Password must be at least {MinPasswordLength} characters."; return; }
+        if (newPw && editNewPassword != editNewPassword2)
+        { editError = "New passwords do not match."; return; }
+        if (string.IsNullOrEmpty(editCurrentPassword))
+        { editError = "Enter your current password to save."; return; }
+
+        saving = true;
+        try
+        {
+            if (!await Profile.PasswordMatchesAsync(UserId, editCurrentPassword))
+            { editError = "Current password is incorrect."; return; }
+            if (await Profile.IsUsernameTakenAsync(newName, UserId))
+            { editError = "That username is already taken."; return; }
+            if (await Profile.IsEmailTakenAsync(newEmail, UserId))
+            { editError = "That email is already used by another account."; return; }
+
+            var nameChanged = newName != targetUser!.Username;
+            await AuthService.UpdateUserAsync(UserId, newName, newEmail, editNewPassword); // blank pw = keep
+
+            if (nameChanged)
+            {
+                // Cookie holds the old username: re-issue it, then come back here.
+                var back = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+                Nav.NavigateTo($"/api/refresh-signin?returnUrl={Uri.EscapeDataString(back)}", forceLoad: true);
+                return;
+            }
+
+            editNewPassword = editNewPassword2 = editCurrentPassword = "";
+            targetUser = (await GameService.GetAllUsersAsync()).FirstOrDefault(u => u.Id == UserId);
+            editMessage = "Saved!";
+        }
+        finally { saving = false; }
+    }
 
     IEnumerable<(Game Game, Prediction? Pred, int? Points)> SortedFiltered
     {
@@ -274,6 +369,10 @@ else
         var users = await GameService.GetAllUsersAsync();
         targetUser = users.FirstOrDefault(u => u.Id == UserId);
         if (targetUser == null) return;
+
+        viewerId = await UserContext.GetUserIdAsync() ?? 0;
+        editUsername = targetUser.Username;
+        editEmail = targetUser.Email;
 
         // History
         historyEntries = await GameService.GetUserTournamentHistoryAsync(UserId);

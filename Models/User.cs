@@ -9,5 +9,6 @@
         public bool IsAdmin { get; set; } = false;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Prediction> Predictions { get; set; } = new List<Prediction>();
+        public int TournamentsWon { get; set; }
     }
 }
