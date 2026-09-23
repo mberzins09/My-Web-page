@@ -49,6 +49,26 @@ namespace MartinsWeb.Services
                  THEN date('1970-01-01', '+' || ((CAST(start_date AS INTEGER) - 621355968000000000) / 10000000) || ' seconds')
                  ELSE start_date END";
 
+        // If PlayerDB ever contains several rows with the same KeyName, this ordering
+        // decides which one is "the" player: has gender, then active, then lowest Id.
+        private const string KeeperOrder = @"
+            CASE WHEN Gender IS NOT NULL AND Gender != '' THEN 0 ELSE 1 END,
+            CASE WHEN IsActive = 1 THEN 0 ELSE 1 END,
+            Id";
+
+        /// <summary>
+        /// How much a foreign player's points changed during a month's replay. The monthly sync only
+        /// resets players that have a gender, so before a month is replayed again these amounts are
+        /// taken back - that is what stops a replay from counting the same games twice.
+        /// </summary>
+        internal const string ForeignDeltaTableSql = @"
+            CREATE TABLE IF NOT EXISTS foreign_month_delta (
+                month     TEXT    NOT NULL,
+                player_id INTEGER NOT NULL,
+                delta     INTEGER NOT NULL,
+                PRIMARY KEY (month, player_id)
+            )";
+
         public bool IsRecalculating { get; private set; }
 
         public LgtfRankingService(IConfiguration config, IHttpClientFactory httpFactory)
@@ -69,16 +89,27 @@ namespace MartinsWeb.Services
         /// Returns a page of PlayerDB entries sorted by PointsWithBonus DESC.
         /// When <paramref name="search"/> is non-empty, pagination is ignored
         /// and all matching rows are returned.
+        /// When <paramref name="foreigns"/> is true only players without a gender are
+        /// returned; the gender and inactive filters are ignored in that mode (foreign
+        /// players are never part of the official ranking, so the monthly sync marks
+        /// them inactive).
         /// </summary>
         public async Task<(List<PlayerDbEntry> Players, int Total)> GetPlayersPageAsync(
-            string? gender, bool showInactive, int page, int pageSize, string? search)
+            string? gender, bool showInactive, int page, int pageSize, string? search, bool foreigns = false)
         {
+            if (foreigns) { gender = null; showInactive = true; }
+
             await EnsurePlayerDbSchemaAsync();
             await using var con = new SqliteConnection(_cs);
             await con.OpenAsync();
 
             // ── Shared WHERE conditions ─────────────────────────────────────
-            var conditions = new List<string> { "Gender IS NOT NULL AND Gender != ''" };
+            var conditions = new List<string>
+            {
+                foreigns
+                    ? "(Gender IS NULL OR Gender = '') AND COALESCE(KeyName, '') != ''"
+                    : "Gender IS NOT NULL AND Gender != ''"
+            };
             if (!showInactive)
                 conditions.Add("IsActive = 1");
             if (!string.IsNullOrWhiteSpace(gender) && gender != "all")
@@ -97,7 +128,7 @@ namespace MartinsWeb.Services
                     FROM PlayerDB
                     {where}
                       AND (Name LIKE $s OR Surname LIKE $s OR (Name || ' ' || Surname) LIKE $s)
-                    ORDER BY PointsWithBonus DESC";
+                    ORDER BY PointsWithBonus DESC, Id";
                 if (!string.IsNullOrWhiteSpace(gender) && gender != "all")
                     cmd.Parameters.AddWithValue("$gender", gender);
                 cmd.Parameters.AddWithValue("$s", $"%{search}%");
@@ -123,7 +154,7 @@ namespace MartinsWeb.Services
                        COALESCE(calcPlace, 0), COALESCE(calcOverallPlace, 0)
                 FROM PlayerDB
                 {where}
-                ORDER BY PointsWithBonus DESC
+                ORDER BY PointsWithBonus DESC, Id
                 LIMIT $limit OFFSET $offset";
             if (!string.IsNullOrWhiteSpace(gender) && gender != "all")
                 pageCmd.Parameters.AddWithValue("$gender", gender);
@@ -138,25 +169,39 @@ namespace MartinsWeb.Services
         }
 
         // ====================================================================
-        //  Called by LgtfImportService after each tournament is imported
+        //  Admin: edit a single player from the rankings page
         // ====================================================================
 
         /// <summary>
-        /// If this is the first competition of its calendar month in the DB,
-        /// syncs PlayerDB from the official API for that month first (resetting
-        /// Points/PointsWithBonus and IsActive), then replays this tournament's
-        /// games against the current PlayerDB state.
+        /// Sets PointsWithBonus and Gender ("male", "female", or empty = foreign).
+        /// If the player has no base Points yet (typical for foreign players), base
+        /// Points are set to the same value - ratings are calculated from base Points,
+        /// so without it the player would be skipped in every rating calculation.
         /// </summary>
-        public async Task RecalculateTournamentAsync(int compId, DateTime compDate, Action<string> progress)
+        public async Task UpdatePlayerAsync(int id, int pointsWithBonus, string? gender)
         {
-            if (await IsFirstTournamentOfMonthAsync(compId, compDate))
+            string? g = gender?.Trim().ToLowerInvariant();
+            if (g != "male" && g != "female") g = null;
+            if (pointsWithBonus < 0) pointsWithBonus = 0;
+
+            await EnsurePlayerDbSchemaAsync();
+            await using (var con = new SqliteConnection(_cs))
             {
-                progress("  📊 First tournament of month — syncing PlayerDB from official rankings…");
-                await SyncFromApiAsync(compDate.ToString("yyyy-MM"), progress);
+                await con.OpenAsync();
+                var cmd = con.CreateCommand();
+                cmd.CommandText = @"
+                    UPDATE PlayerDB
+                    SET    PointsWithBonus = $pwb,
+                           Gender          = $g,
+                           Points          = CASE WHEN COALESCE(Points, 0) = 0 THEN $pwb ELSE Points END
+                    WHERE  Id = $id";
+                cmd.Parameters.AddWithValue("$pwb", pointsWithBonus);
+                cmd.Parameters.AddWithValue("$g",   (object?)g ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("$id",  id);
+                await cmd.ExecuteNonQueryAsync();
             }
 
-            progress($"  📊 Recalculating PlayerDB for competition {compId}…");
-            await RunRecalculationAsync(compId, compDate, progress);
+            await RecalculateCalcPlacesAsync();
         }
 
         // ====================================================================
@@ -173,48 +218,138 @@ namespace MartinsWeb.Services
             IsRecalculating = true;
             try
             {
-                string yearMonth = $"{year:D4}-{month:D2}";
-                var comps = await GetCompetitionsForMonthAsync(year, month);
-
-                if (!comps.Any())
-                {
-                    progress($"No competitions found for {yearMonth}.");
-                    return;
-                }
-
-                progress($"Found {comps.Count} competition(s) for {yearMonth}. Syncing from official rankings…");
-                await SyncFromApiAsync(yearMonth, progress);
-
-                int i = 0;
-                foreach (var (compId, name, compDate) in comps)
-                {
-                    progress($"\n[{++i}/{comps.Count}] {name} ({compDate:yyyy-MM-dd})");
-                    await RunRecalculationAsync(compId, compDate, progress);
-                }
-
-                progress("\n✅ Month recalculation complete.");
+                await RecalculateMonthCoreAsync(year, month, progress);
             }
             finally { IsRecalculating = false; }
         }
 
-        // ====================================================================
-        //  Private: first-of-month detection
-        // ====================================================================
+        /// <summary>
+        /// Called automatically at the end of an import: recalculates every month in
+        /// <paramref name="months"/> (oldest first) with the same logic as the manual
+        /// "Recalculate Month" button. The newest month that has competitions is always
+        /// included and always runs last, so PlayerDB ends up in the current state even
+        /// when the import only added games to an older month.
+        /// </summary>
+        public async Task RecalculateMonthsAsync(IEnumerable<(int Year, int Month)> months, Action<string> progress)
+        {
+            if (IsRecalculating) { progress("⚠️ Already recalculating."); return; }
+            IsRecalculating = true;
+            try
+            {
+                var set = new SortedSet<(int Year, int Month)>(months);
 
-        private async Task<bool> IsFirstTournamentOfMonthAsync(int compId, DateTime compDate)
+                var latest = await GetLatestCompetitionMonthAsync();
+                if (latest.HasValue) set.Add(latest.Value);
+
+                foreach (var (year, month) in set)
+                    await RecalculateMonthCoreAsync(year, month, progress);
+            }
+            finally { IsRecalculating = false; }
+        }
+
+        private async Task RecalculateMonthCoreAsync(int year, int month, Action<string> progress)
+        {
+            string yearMonth = $"{year:D4}-{month:D2}";
+            var comps = await GetCompetitionsForMonthAsync(year, month);
+
+            if (!comps.Any())
+            {
+                progress($"No competitions found for {yearMonth}.");
+                return;
+            }
+
+            progress($"Found {comps.Count} competition(s) for {yearMonth}. Syncing from official rankings…");
+            bool synced = await SyncFromApiAsync(yearMonth, progress);
+            if (!synced)
+            {
+                // Replaying on top of already-updated points would count every game twice.
+                progress($"⚠️ {yearMonth}: official rankings not available - month NOT recalculated. Run it again later.");
+                return;
+            }
+
+            await UndoForeignMonthDeltasAsync(yearMonth);
+
+            int i = 0;
+            foreach (var (compId, name, compDate) in comps)
+            {
+                progress($"\n[{++i}/{comps.Count}] {name} ({compDate:yyyy-MM-dd})");
+                await RunRecalculationAsync(compId, compDate, progress);
+            }
+
+            progress($"\n✅ {yearMonth} recalculation complete.");
+        }
+
+        /// <summary>Takes back what the previous replay of this month did to foreign players' points.</summary>
+        private async Task UndoForeignMonthDeltasAsync(string yearMonth)
+        {
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+            await EnsureForeignDeltaTableAsync(con);
+            await using var tr = await con.BeginTransactionAsync();
+
+            var undo = con.CreateCommand();
+            undo.Transaction = (SqliteTransaction)tr;
+            undo.CommandText = @"
+                UPDATE PlayerDB
+                SET    Points = MAX(0, COALESCE(Points, 0) - (SELECT d.delta FROM foreign_month_delta d WHERE d.month = $m AND d.player_id = PlayerDB.Id)),
+                       PointsWithBonus = MAX(0, COALESCE(PointsWithBonus, 0) - (SELECT d.delta FROM foreign_month_delta d WHERE d.month = $m AND d.player_id = PlayerDB.Id))
+                WHERE  (Gender IS NULL OR Gender = '')
+                  AND  Id IN (SELECT player_id FROM foreign_month_delta WHERE month = $m)";
+            undo.Parameters.AddWithValue("$m", yearMonth);
+            await undo.ExecuteNonQueryAsync();
+
+            var del = con.CreateCommand();
+            del.Transaction = (SqliteTransaction)tr;
+            del.CommandText = "DELETE FROM foreign_month_delta WHERE month = $m";
+            del.Parameters.AddWithValue("$m", yearMonth);
+            await del.ExecuteNonQueryAsync();
+
+            await tr.CommitAsync();
+        }
+
+        private static async Task EnsureForeignDeltaTableAsync(SqliteConnection con)
+        {
+            var c = con.CreateCommand();
+            c.CommandText = ForeignDeltaTableSql;
+            await c.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>Months (oldest first) from the given month onwards that have competitions.</summary>
+        public async Task<List<(int Year, int Month)>> GetCompetitionMonthsFromAsync(int year, int month)
         {
             await using var con = new SqliteConnection(_cs);
             await con.OpenAsync();
 
             var cmd = con.CreateCommand();
             cmd.CommandText = $@"
-                SELECT COUNT(*) FROM competitions
-                WHERE id != $cid
-                  AND strftime('%Y-%m', ({NormDate})) = $ym";
-            cmd.Parameters.AddWithValue("$cid", compId);
-            cmd.Parameters.AddWithValue("$ym",  compDate.ToString("yyyy-MM"));
+                SELECT ym FROM (SELECT DISTINCT strftime('%Y-%m', ({NormDate})) AS ym FROM competitions)
+                WHERE ym >= $ym ORDER BY ym";
+            cmd.Parameters.AddWithValue("$ym", $"{year:D4}-{month:D2}");
 
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 0;
+            var result = new List<(int, int)>();
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                if (!r.IsDBNull(0) && DateTime.TryParseExact(r.GetString(0), "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                    result.Add((d.Year, d.Month));
+            }
+
+            return result;
+        }
+
+        private async Task<(int Year, int Month)?> GetLatestCompetitionMonthAsync()
+        {
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+
+            var cmd = con.CreateCommand();
+            cmd.CommandText = $"SELECT MAX(strftime('%Y-%m', ({NormDate}))) FROM competitions";
+            var val = await cmd.ExecuteScalarAsync();
+
+            if (val is string s && DateTime.TryParseExact(s, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                return (d.Year, d.Month);
+
+            return null;
         }
 
         // ====================================================================
@@ -253,7 +388,8 @@ namespace MartinsWeb.Services
         //  Private: sync PlayerDB from official API
         // ====================================================================
 
-        private async Task SyncFromApiAsync(string yearMonth, Action<string> progress)
+        /// <returns>true when official rankings were fetched and PlayerDB was synced.</returns>
+        private async Task<bool> SyncFromApiAsync(string yearMonth, Action<string> progress)
         {
             progress($"  Fetching male rankings for {yearMonth}…");
             var males = await FetchRankingFromApiAsync("male", "virietis", yearMonth);
@@ -268,7 +404,7 @@ namespace MartinsWeb.Services
             if (males.Count == 0 && females.Count == 0)
             {
                 progress("  ⚠️ No ranking data from API — skipping sync.");
-                return;
+                return false;
             }
 
             await using var con = new SqliteConnection(_cs);
@@ -283,11 +419,11 @@ namespace MartinsWeb.Services
             // Load existing KeyName → Id map
             var existing = new Dictionary<string, int>(StringComparer.Ordinal);
             var sel = con.CreateCommand(); sel.Transaction = (SqliteTransaction)tr;
-            sel.CommandText = "SELECT Id, KeyName FROM PlayerDB WHERE KeyName IS NOT NULL AND KeyName != ''";
+            sel.CommandText = $"SELECT Id, KeyName FROM PlayerDB WHERE KeyName IS NOT NULL AND KeyName != '' ORDER BY {KeeperOrder}";
             await using (var r = await sel.ExecuteReaderAsync())
                 while (await r.ReadAsync())
                     if (!r.IsDBNull(1))
-                        existing[r.GetString(1)] = r.GetInt32(0);
+                        existing.TryAdd(r.GetString(1), r.GetInt32(0));   // first row per key wins = keeper
 
             // Process male and female lists
             foreach (var (apiList, genderTag) in new[] { (males, "male"), (females, "female") })
@@ -313,22 +449,19 @@ namespace MartinsWeb.Services
                     }
                     else
                     {
-                        // Insert new — look up name/surname and players.id from the players table
-                        var (pname, psurname, playerId) = await GetPlayerInfoAsync(con, (SqliteTransaction)tr, p.KeyName);
-
+                        // Insert new — name and surname come straight from the API list
                         var ins = con.CreateCommand(); ins.Transaction = (SqliteTransaction)tr;
                         ins.CommandText = @"INSERT INTO PlayerDB
                             (Place, Points, PointsWithBonus, PointsChanged, Name, Surname,
-                             Gender, BirthDate, IsActive, NewId, KeyName, OverallPlace)
-                            VALUES ($place, $pts, $pwb, 0, $name, $sn, $gender, $bd, 1, $newid, $kn, 0)";
+                             Gender, BirthDate, IsActive, KeyName, OverallPlace)
+                            VALUES ($place, $pts, $pwb, 0, $name, $sn, $gender, $bd, 1, $kn, 0)";
                         ins.Parameters.AddWithValue("$place",  p.Place);
                         ins.Parameters.AddWithValue("$pts",    p.Points);
                         ins.Parameters.AddWithValue("$pwb",    p.PointsWithBonus);
-                        ins.Parameters.AddWithValue("$name",   pname);
-                        ins.Parameters.AddWithValue("$sn",     psurname);
+                        ins.Parameters.AddWithValue("$name",   p.Name);
+                        ins.Parameters.AddWithValue("$sn",     p.Surname);
                         ins.Parameters.AddWithValue("$gender", genderTag);
                         ins.Parameters.AddWithValue("$bd",     p.BirthDate);
-                        ins.Parameters.AddWithValue("$newid",  playerId.HasValue ? (object)playerId.Value : DBNull.Value);
                         ins.Parameters.AddWithValue("$kn",     p.KeyName);
                         await ins.ExecuteNonQueryAsync();
 
@@ -345,6 +478,7 @@ namespace MartinsWeb.Services
             await RecalculateCalcPlacesAsync();
 
             progress($"  ✅ Sync done. {males.Count + females.Count} player(s) processed.");
+            return true;
         }
 
         // ====================================================================
@@ -371,23 +505,28 @@ namespace MartinsWeb.Services
             loadCmd.CommandText = @"
                 SELECT Id, KeyName,
                        COALESCE(Points, 0), COALESCE(PointsWithBonus, 0),
-                       COALESCE(IsActive, 0), COALESCE(Place, 0)
+                       COALESCE(IsActive, 0), COALESCE(Place, 0),
+                       CASE WHEN Gender IS NULL OR Gender = '' THEN 1 ELSE 0 END
                 FROM PlayerDB
-                WHERE KeyName IS NOT NULL AND KeyName != ''";
+                WHERE KeyName IS NOT NULL AND KeyName != ''
+                ORDER BY " + KeeperOrder;
             await using (var r = await loadCmd.ExecuteReaderAsync())
             {
                 while (await r.ReadAsync())
                 {
                     string kn  = r.GetString(1);
+                    if (dict.ContainsKey(kn)) continue;   // duplicate key: first row (keeper) wins
                     int    pts = r.GetInt32(2);
                     int    pwb = r.GetInt32(3);
                     dict[kn] = new PlayerWorkState
                     {
                         DbId        = r.GetInt32(0),
                         Points      = pts,
+                        StartPoints = pts,
                         BonusPoints = pwb - pts,  // preserved across recalculation
                         WasActive   = r.GetInt32(4) == 1,
                         Place       = r.GetInt32(5),
+                        IsForeign   = r.GetInt32(6) == 1,
                         Participated = false
                     };
                 }
@@ -396,10 +535,10 @@ namespace MartinsWeb.Services
             // Load birth dates for age calculation
             var birthDates = new Dictionary<int, string>();
             var bdCmd = con.CreateCommand();
-            bdCmd.CommandText = "SELECT id, COALESCE(birth_date, '') FROM players";
+            bdCmd.CommandText = "SELECT Id, COALESCE(BirthDate, '') FROM PlayerDB";
             await using (var r = await bdCmd.ExecuteReaderAsync())
                 while (await r.ReadAsync())
-                    birthDates[r.GetInt32(0)] = r.GetString(1);
+                    birthDates[r.GetInt32(0)] = r.GetValue(1)?.ToString() ?? "";
 
             // Load games (include id and player ids for games table update)
             var games = new List<(int gid, string k1, string k2, int s1, int s2, int p1id, int p2id)>();
@@ -459,7 +598,9 @@ namespace MartinsWeb.Services
             }
 
             // Persist everything in one transaction
+            await EnsureForeignDeltaTableAsync(con);
             await using var tr = await con.BeginTransactionAsync();
+            string yearMonth = compDate.ToString("yyyy-MM", CultureInfo.InvariantCulture);
 
             // Write PlayerDB-sourced points into the games table
             foreach (var (gid, p1p, p2p, p1wb, p2wb, p1a, p2a, p1pl, p2pl) in gameTableUpdates)
@@ -486,6 +627,20 @@ namespace MartinsWeb.Services
             {
                 int newPts = Math.Max(0, state.Points);
                 int newPwb = newPts + Math.Max(0, state.BonusPoints);
+
+                // Foreign players are not reset by the monthly sync - remember how much this month
+                // moved them so a later replay of the month can take it back first.
+                if (state.IsForeign && newPts != state.StartPoints)
+                {
+                    var rec = con.CreateCommand(); rec.Transaction = (SqliteTransaction)tr;
+                    rec.CommandText = @"
+                        INSERT INTO foreign_month_delta (month, player_id, delta) VALUES ($m, $id, $d)
+                        ON CONFLICT(month, player_id) DO UPDATE SET delta = delta + excluded.delta";
+                    rec.Parameters.AddWithValue("$m",  yearMonth);
+                    rec.Parameters.AddWithValue("$id", state.DbId);
+                    rec.Parameters.AddWithValue("$d",  newPts - state.StartPoints);
+                    await rec.ExecuteNonQueryAsync();
+                }
 
                 var upd = con.CreateCommand(); upd.Transaction = (SqliteTransaction)tr;
                 upd.CommandText = @"UPDATE PlayerDB
@@ -659,6 +814,8 @@ namespace MartinsWeb.Services
                             .Select(p => new TtRankedPlayer
                             {
                                 KeyName         = NormalizeKey(p.Name! + p.Surname!),
+                                Name            = p.Name!.Trim(),
+                                Surname         = p.Surname!.Trim(),
                                 Place           = p.Rank,
                                 Points          = int.TryParse(p.Points,          out var pts) ? pts : 0,
                                 PointsWithBonus = int.TryParse(p.PointsWithBonus, out var wb)  ? wb  : 0,
@@ -682,6 +839,8 @@ namespace MartinsWeb.Services
                             .Select(p => new TtRankedPlayer
                             {
                                 KeyName         = NormalizeKey(p.Name! + p.Surname!),
+                                Name            = p.Name!.Trim(),
+                                Surname         = p.Surname!.Trim(),
                                 Place           = p.Place,
                                 Points          = p.Points,
                                 PointsWithBonus = p.PointsWithBonus,
@@ -697,20 +856,6 @@ namespace MartinsWeb.Services
         // ====================================================================
         //  Private: DB helpers
         // ====================================================================
-
-        private static async Task<(string name, string surname, int? playerId)> GetPlayerInfoAsync(
-            SqliteConnection con, SqliteTransaction tr, string keyName)
-        {
-            var cmd = con.CreateCommand(); cmd.Transaction = tr;
-            cmd.CommandText = "SELECT id, name, surname FROM players WHERE key_name = $k LIMIT 1";
-            cmd.Parameters.AddWithValue("$k", keyName);
-            await using var r = await cmd.ExecuteReaderAsync();
-            if (await r.ReadAsync())
-                return (r.IsDBNull(1) ? "" : r.GetString(1),
-                        r.IsDBNull(2) ? "" : r.GetString(2),
-                        r.GetInt32(0));
-            return ("", "", null);
-        }
 
         private static PlayerDbEntry ReadPlayerDb(SqliteDataReader r) => new()
         {
@@ -751,6 +896,8 @@ namespace MartinsWeb.Services
             public int  BonusPoints  { get; set; }
             public int  Place        { get; set; }
             public bool WasActive    { get; set; }
+            public bool IsForeign    { get; set; }
+            public int  StartPoints  { get; set; }   // points when this competition's replay began
             public bool Participated { get; set; }
         }
     }

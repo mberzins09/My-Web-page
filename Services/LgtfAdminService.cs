@@ -32,6 +32,206 @@ namespace MartinsWeb.Services
         }
 
         // ====================================================================
+        //  Database clean-up
+        // ====================================================================
+
+        /// <summary>
+        /// One-off maintenance for lgtf.sqlite:
+        ///   1. Makes a backup copy of the database file (VACUUM INTO).
+        ///   2. Removes duplicate PlayerDB rows (same KeyName). Keeper = has Gender,
+        ///      then IsActive = 1, then lowest Id. Games pointing at a removed row
+        ///      are re-pointed to the keeper.
+        ///   3. Re-points games.player1_id / player2_id to PlayerDB.Id by key name,
+        ///      so games use the PlayerDB id space only (needed once "players" is gone).
+        ///   4. Adds a UNIQUE index on PlayerDB.KeyName so duplicates cannot come back.
+        ///   5. Drops the legacy "players" table.
+        /// Steps 2-5 run in a single transaction - either everything happens or nothing.
+        /// </summary>
+        public async Task<CleanDatabaseResult> CleanDatabaseAsync()
+        {
+            var result = new CleanDatabaseResult();
+
+            // ── 1. Backup ────────────────────────────────────────────────────
+            result.BackupFile = await CreateBackupAsync();
+
+            // ── 2-5. Clean-up in one transaction ─────────────────────────────
+            await using (var con = new SqliteConnection(_cs))
+            {
+                await con.OpenAsync();
+                await using var tr = (SqliteTransaction)await con.BeginTransactionAsync();
+
+                async Task<int> Exec(string sql)
+                {
+                    var c = con.CreateCommand();
+                    c.Transaction = tr;
+                    c.CommandText = sql;
+                    return await c.ExecuteNonQueryAsync();
+                }
+
+                async Task<int> Scalar(string sql)
+                {
+                    var c = con.CreateCommand();
+                    c.Transaction = tr;
+                    c.CommandText = sql;
+                    return Convert.ToInt32(await c.ExecuteScalarAsync());
+                }
+
+                // Old id -> keeper id for every duplicate row
+                await Exec("DROP TABLE IF EXISTS temp._dup_map");
+                await Exec("CREATE TEMP TABLE _dup_map (OldId INTEGER PRIMARY KEY, KeeperId INTEGER NOT NULL)");
+                await Exec(@"
+                    INSERT INTO _dup_map (OldId, KeeperId)
+                    SELECT OldId, KeeperId
+                    FROM (
+                        SELECT Id AS OldId,
+                               FIRST_VALUE(Id) OVER (
+                                   PARTITION BY KeyName
+                                   ORDER BY CASE WHEN Gender IS NOT NULL AND Gender != '' THEN 0 ELSE 1 END,
+                                            CASE WHEN IsActive = 1 THEN 0 ELSE 1 END,
+                                            Id) AS KeeperId
+                        FROM PlayerDB
+                        WHERE KeyName IS NOT NULL AND KeyName != ''
+                    )
+                    WHERE OldId != KeeperId");
+
+                result.DuplicatesRemoved = await Scalar("SELECT COUNT(*) FROM _dup_map");
+                result.DuplicateGroups   = await Scalar("SELECT COUNT(DISTINCT KeeperId) FROM _dup_map");
+
+                // Games that point at a duplicate -> point at the keeper
+                result.GamesRepointed += await Exec(@"
+                    UPDATE games
+                    SET    player1_id = (SELECT KeeperId FROM _dup_map WHERE OldId = games.player1_id)
+                    WHERE  player1_id IN (SELECT OldId FROM _dup_map)");
+                result.GamesRepointed += await Exec(@"
+                    UPDATE games
+                    SET    player2_id = (SELECT KeeperId FROM _dup_map WHERE OldId = games.player2_id)
+                    WHERE  player2_id IN (SELECT OldId FROM _dup_map)");
+
+                await Exec("DELETE FROM PlayerDB WHERE Id IN (SELECT OldId FROM _dup_map)");
+                await Exec("DROP TABLE temp._dup_map");
+
+                // Make games.player*_id agree with PlayerDB.Id (matched by key name)
+                foreach (var side in new[] { "player1", "player2" })
+                {
+                    result.GamesResynced += await Exec($@"
+                        UPDATE games
+                        SET    {side}_id = (SELECT p.Id FROM PlayerDB p WHERE p.KeyName = games.{side}_keyName)
+                        WHERE  {side}_keyName IS NOT NULL AND {side}_keyName != ''
+                          AND  EXISTS (SELECT 1 FROM PlayerDB p WHERE p.KeyName = games.{side}_keyName)
+                          AND  {side}_id IS NOT (SELECT p.Id FROM PlayerDB p WHERE p.KeyName = games.{side}_keyName)");
+                }
+
+                // No more duplicates, ever
+                await Exec(@"CREATE UNIQUE INDEX IF NOT EXISTS ux_PlayerDB_KeyName
+                             ON PlayerDB (KeyName)
+                             WHERE KeyName IS NOT NULL AND KeyName != ''");
+
+                // Legacy table
+                await Exec("DROP TABLE IF EXISTS players");
+                result.PlayersTableDropped = true;
+
+                await tr.CommitAsync();
+            }
+
+            // ── Shrink the file (cannot run inside a transaction) ────────────
+            try
+            {
+                await using var vcon = new SqliteConnection(_cs);
+                await vcon.OpenAsync();
+                var vcmd = vcon.CreateCommand();
+                vcmd.CommandText = "VACUUM";
+                await vcmd.ExecuteNonQueryAsync();
+                result.Vacuumed = true;
+            }
+            catch { /* not critical */ }
+
+            return result;
+        }
+
+        /// <summary>Consistent copy of the database next to the original (VACUUM INTO). Returns the file path.</summary>
+        private async Task<string> CreateBackupAsync()
+        {
+            var csb = new SqliteConnectionStringBuilder(_cs);
+            string dbPath = Path.GetFullPath(csb.DataSource);
+            string backupPath = Path.Combine(
+                Path.GetDirectoryName(dbPath)!,
+                $"{Path.GetFileNameWithoutExtension(dbPath)}.backup-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(dbPath)}");
+
+            await using var bcon = new SqliteConnection(_cs);
+            await bcon.OpenAsync();
+            var bcmd = bcon.CreateCommand();
+            bcmd.CommandText = $"VACUUM INTO '{backupPath.Replace("'", "''")}'";
+            await bcmd.ExecuteNonQueryAsync();
+
+            return backupPath;
+        }
+
+        /// <summary>
+        /// Deletes every singles competition that came from the API (external_event_id &gt; 0) together
+        /// with its games, so it can be imported again. Also moves the singles import date back so
+        /// the next import starts at the earliest deleted tournament. Competitions from the old
+        /// program (external_event_id = 0) and team/season competitions are not touched.
+        /// A backup is created first; the deletes run in one transaction.
+        /// </summary>
+        public async Task<DeleteExternalResult> DeleteExternalSinglesAsync()
+        {
+            var result = new DeleteExternalResult { BackupFile = await CreateBackupAsync() };
+
+            const string isExternalSingles = "external_event_id > 0 AND COALESCE(event_type, 'singles') = 'singles'";
+
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+            await using var tr = (SqliteTransaction)await con.BeginTransactionAsync();
+
+            var minCmd = con.CreateCommand();
+            minCmd.Transaction = tr;
+            minCmd.CommandText = $"SELECT MIN({NormDate}) FROM competitions c WHERE {isExternalSingles}";
+            var min = await minCmd.ExecuteScalarAsync();
+
+            var delGames = con.CreateCommand();
+            delGames.Transaction = tr;
+            delGames.CommandText = $"DELETE FROM games WHERE competition_id IN (SELECT id FROM competitions WHERE {isExternalSingles})";
+            result.GamesDeleted = await delGames.ExecuteNonQueryAsync();
+
+            var delComps = con.CreateCommand();
+            delComps.Transaction = tr;
+            delComps.CommandText = $"DELETE FROM competitions WHERE {isExternalSingles}";
+            result.CompetitionsDeleted = await delComps.ExecuteNonQueryAsync();
+
+            // The import starts (import date - 14 days) back, so push the date 14 days forward
+            // from the earliest deleted tournament to start exactly on it.
+            if (result.CompetitionsDeleted > 0 && min is string minStr && DateTime.TryParse(minStr, out var minDate))
+            {
+                var ddl = con.CreateCommand();
+                ddl.Transaction = tr;
+                ddl.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS import_log (
+                        id                        INTEGER PRIMARY KEY,
+                        import_date               TEXT,
+                        last_singles_date         TEXT,
+                        last_teams_season_date    TEXT,
+                        teams_season_cleanup_done INTEGER DEFAULT 0
+                    )";
+                await ddl.ExecuteNonQueryAsync();
+
+                var log = con.CreateCommand();
+                log.Transaction = tr;
+                log.CommandText = @"
+                    INSERT INTO import_log (id, import_date, last_singles_date)
+                    VALUES (1, $now, $d)
+                    ON CONFLICT(id) DO UPDATE SET last_singles_date = excluded.last_singles_date";
+                log.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+                log.Parameters.AddWithValue("$d",   minDate.AddDays(14).ToString("yyyy-MM-dd"));
+                await log.ExecuteNonQueryAsync();
+
+                result.ImportFromDate = minDate.ToString("yyyy-MM-dd");
+            }
+
+            await tr.CommitAsync();
+            return result;
+        }
+
+        // ====================================================================
         //  Tournaments
         // ====================================================================
 
@@ -167,11 +367,11 @@ namespace MartinsWeb.Services
                 SELECT  g.id,
                         g.player1_id, g.player2_id,
                         g.player1_sets, g.player2_sets,
-                        p1.name || ' ' || p1.surname,
-                        p2.name || ' ' || p2.surname
+                        TRIM(COALESCE(p1.Name, '') || ' ' || COALESCE(p1.Surname, '')),
+                        TRIM(COALESCE(p2.Name, '') || ' ' || COALESCE(p2.Surname, ''))
                 FROM    games g
-                JOIN    players p1 ON p1.id = g.player1_id
-                JOIN    players p2 ON p2.id = g.player2_id
+                LEFT JOIN PlayerDB p1 ON p1.Id = g.player1_id
+                LEFT JOIN PlayerDB p2 ON p2.Id = g.player2_id
                 WHERE   g.competition_id = $cid
                 ORDER BY g.id";
             cmd.Parameters.AddWithValue("$cid", competitionId);
@@ -204,11 +404,11 @@ namespace MartinsWeb.Services
                 SELECT  g.id,
                         g.player1_id, g.player2_id,
                         g.player1_sets, g.player2_sets,
-                        p1.name || ' ' || p1.surname,
-                        p2.name || ' ' || p2.surname
+                        TRIM(COALESCE(p1.Name, '') || ' ' || COALESCE(p1.Surname, '')),
+                        TRIM(COALESCE(p2.Name, '') || ' ' || COALESCE(p2.Surname, ''))
                 FROM    games g
-                JOIN    players p1 ON p1.id = g.player1_id
-                JOIN    players p2 ON p2.id = g.player2_id
+                LEFT JOIN PlayerDB p1 ON p1.Id = g.player1_id
+                LEFT JOIN PlayerDB p2 ON p2.Id = g.player2_id
                 WHERE   g.id = $id";
             cmd.Parameters.AddWithValue("$id", gameId);
 
@@ -277,7 +477,7 @@ namespace MartinsWeb.Services
         {
             var parts = fullName.Trim().Split(' ', 2);
             var cmd = con.CreateCommand();
-            cmd.CommandText = "UPDATE players SET name=$n, surname=$s WHERE id=$id";
+            cmd.CommandText = "UPDATE PlayerDB SET Name=$n, Surname=$s WHERE Id=$id";
             cmd.Parameters.AddWithValue("$n",  parts[0]);
             cmd.Parameters.AddWithValue("$s",  parts.Length > 1 ? parts[1] : "");
             cmd.Parameters.AddWithValue("$id", playerId);

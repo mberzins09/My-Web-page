@@ -1,0 +1,120 @@
+/* ── Constrain width so 1fr is identical for every row ──────────────── */
+.lgtf-rankings-wrapper {
+    max-width: 700px;
+}
+
+/* ── Shared grid: 5 columns, name gets 1fr ───────────────────────────── */
+.lgtf-rank-header,
+.lgtf-rank-card {
+    display: grid;
+    /*  Old  New   Name(1fr)  Pts+Bonus  Base  */
+    grid-template-columns: 30px 58px 1fr 72px 72px;
+    align-items: center;
+    column-gap: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+.lgtf-rank-header {
+    font-size: .75rem;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 2px;
+}
+
+/* Vertical text for the two narrow place-header cells */
+.lgtf-rank-header .lgtf-rank-old-place,
+.lgtf-rank-header .lgtf-rank-new-place {
+    font-size: .75rem;
+    line-height: 1;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────── */
+.lgtf-rank-card {
+    cursor: pointer;
+    background: rgba(255,255,255,.04);
+    transition: background .13s;
+}
+.lgtf-rank-card:hover { background: rgba(255,255,255,.11); }
+.lgtf-rank-inactive   { opacity: .5; }
+
+/* ── Cell styles ─────────────────────────────────────────────────────── */
+.lgtf-rank-old-place {
+    text-align: right;
+    font-weight: 600;
+    color: #888;
+    font-size: .75rem;
+    white-space: nowrap;
+}
+
+.lgtf-rank-new-place {
+    text-align: right;
+    font-weight: 700;
+    font-size: .75rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1px;
+    white-space: nowrap;
+}
+
+.lgtf-rank-name     { font-weight: 500; }
+.lgtf-rank-pwb-col  { text-align: right; white-space: nowrap; }
+.lgtf-rank-base-col { text-align: right; font-size: .82rem; white-space: nowrap; }
+
+/* ── Admin: edit button + inline edit panel ──────────────────────────── */
+.lgtf-rank-edit-btn {
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font-size: .8rem;
+    line-height: 1.4;
+    opacity: .45;
+    cursor: pointer;
+}
+.lgtf-rank-edit-btn:hover,
+.lgtf-rank-edit-btn:focus-visible { opacity: 1; background: rgba(255,255,255,.14); }
+
+.lgtf-rank-edit-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+    margin: 2px 0 8px;
+    padding: 10px 12px;
+    background: rgba(13,110,253,.10);
+    border-left: 3px solid #0d6efd;
+    border-radius: 0 6px 6px 0;
+}
+
+.lgtf-edit-field        { min-width: 150px; }
+.lgtf-edit-field label  { display: block; margin-bottom: 2px; font-size: .75rem; color: #888; }
+.lgtf-edit-actions      { display: flex; gap: 6px; }
+
+/* ── Mobile ──────────────────────────────────────────────────────────── */
+@media (max-width: 576px) {
+    .lgtf-rankings-wrapper { max-width: 100%; }
+    .lgtf-rank-header,
+    .lgtf-rank-card {
+        /*  Old   New   Name(1fr)  Pts+Bonus  Base  */
+        grid-template-columns: 25px 50px 1fr 48px 48px;
+        column-gap: 3px;
+        padding: 2px 3px;
+    }
+    /* Clip points cells so they never push other columns */
+    .lgtf-rank-pwb-col,
+    .lgtf-rank-base-col { overflow: hidden; }
+
+    .lgtf-edit-field { flex: 1 1 130px; }
+}

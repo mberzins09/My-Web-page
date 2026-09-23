@@ -2,7 +2,7 @@
 @rendermode InteractiveServer
 @using MartinsWeb.Services
 @inject LgtfRankingService RankingService
-@inject LgtfImportService lgtfImportService
+@inject AuthenticationStateProvider AuthProvider
 @inject NavigationManager Nav
 
 <h3>🏓 Latvia TT Rankings</h3>
@@ -12,18 +12,29 @@
 
     <div class="btn-group" role="group" aria-label="Gender filter">
         <button class="btn btn-sm @(selectedGender == "all"    ? "btn-primary" : "btn-outline-primary")"
+                disabled="@showForeigns"
                 @onclick='() => SetGender("all")'>All</button>
         <button class="btn btn-sm @(selectedGender == "male"   ? "btn-primary" : "btn-outline-primary")"
+                disabled="@showForeigns"
                 @onclick='() => SetGender("male")'>♂ Male</button>
         <button class="btn btn-sm @(selectedGender == "female" ? "btn-primary" : "btn-outline-primary")"
+                disabled="@showForeigns"
                 @onclick='() => SetGender("female")'>♀ Female</button>
     </div>
 
     <div class="form-check form-switch mb-0">
         <input class="form-check-input" type="checkbox" role="switch" id="activeToggle"
                checked="@showInactive"
+               disabled="@showForeigns"
                @onchange="OnToggleActive" />
         <label class="form-check-label" for="activeToggle">Show Inactive</label>
+    </div>
+
+    <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="foreignToggle"
+               checked="@showForeigns"
+               @onchange="OnToggleForeigns" />
+        <label class="form-check-label" for="foreignToggle">Show foreigns</label>
     </div>
 </div>
 
@@ -78,8 +89,10 @@ else
             int calcPlace = isAll ? p.CalcOverallPlace : p.CalcPlace;
             int diff = calcPlace > 0 && oldPlace > 0 ? oldPlace - calcPlace : 0; // positive = moved up
             bool isLongText = calcPlace > 999 && Math.Abs(diff) > 99;
-                <div class="lgtf-rank-card @(p.IsActive ? "" : "lgtf-rank-inactive")"
-                 title="@(p.IsActive ? "" : "Inactive player")"
+            bool faded = !p.IsActive && !showForeigns;   // foreign players are always "inactive" - don't fade them
+            <div class="lgtf-rank-row">
+            <div class="lgtf-rank-card @(faded ? "lgtf-rank-inactive" : "")"
+                 title="@(faded ? "Inactive player" : "")"
                  @onclick="() => GoToPlayer(p)">
 
                 <span class="lgtf-rank-old-place">@(oldPlace > 0 ? oldPlace : "—")</span>
@@ -105,9 +118,14 @@ else
 
                 <span class="lgtf-rank-name">
                     @p.FullName
-                    @if (!p.IsActive)
+                    @if (faded)
                     {
                         <span class="badge bg-secondary ms-1" style="font-size:.6rem;vertical-align:middle">Inactive</span>
+                    }
+                    @if (isAdmin)
+                    {
+                        <button type="button" class="lgtf-rank-edit-btn" title="Edit player"
+                                @onclick="() => ToggleEdit(p)" @onclick:stopPropagation="true">✎</button>
                     }
                 </span>
 
@@ -117,6 +135,36 @@ else
                 </span>
 
             </div>
+
+            @if (isAdmin && editingId == p.Id)
+            {
+                <div class="lgtf-rank-edit-panel">
+                    <div class="lgtf-edit-field">
+                        <label for="pwb-@p.Id">Points with bonus</label>
+                        <input id="pwb-@p.Id" type="number" min="0" class="form-control form-control-sm"
+                               @bind="editPwb" />
+                    </div>
+                    <div class="lgtf-edit-field">
+                        <label for="gender-@p.Id">Gender</label>
+                        <select id="gender-@p.Id" class="form-select form-select-sm" @bind="editGender">
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="">Foreign (no gender)</option>
+                        </select>
+                    </div>
+                    <div class="lgtf-edit-actions">
+                        <button type="button" class="btn btn-sm btn-primary" disabled="@saving" @onclick="SaveEdit">
+                            @(saving ? "Saving…" : "Save")
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@saving" @onclick="CancelEdit">Cancel</button>
+                    </div>
+                    @if (editError != null)
+                    {
+                        <div class="text-danger small w-100">@editError</div>
+                    }
+                </div>
+            }
+            </div> @* lgtf-rank-row *@
         }
     </div>
     </div> @* lgtf-rankings-wrapper *@
@@ -148,96 +196,6 @@ else
     }
 }
 
-@* ── Styles ──────────────────────────────────────────────────────────────── *@
-<style>
-    /* ── Constrain width so 1fr is identical for every row ──────────────── */
-    .lgtf-rankings-wrapper {
-        max-width: 700px;
-    }
-
-    /* ── Shared grid: 5 columns, name gets 1fr ───────────────────────────── */
-    .lgtf-rank-header,
-    .lgtf-rank-card {
-        display: grid;
-        /*  Old  New   Name(1fr)  Pts+Bonus  Base  */
-        grid-template-columns: 30px 58px 1fr 72px 72px;
-        align-items: center;
-        column-gap: 8px;
-        padding: 5px 10px;
-        border-radius: 6px;
-    }
-
-    /* ── Header ──────────────────────────────────────────────────────────── */
-    .lgtf-rank-header {
-        font-size: .75rem;
-        font-weight: 600;
-        color: #888;
-        text-transform: uppercase;
-        letter-spacing: .04em;
-        margin-bottom: 2px;
-    }
-
-    /* Vertical text for the two narrow place-header cells */
-    .lgtf-rank-header .lgtf-rank-old-place,
-    .lgtf-rank-header .lgtf-rank-new-place {
-        font-size: .75rem;
-        line-height: 1;
-        height: 28px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        white-space: nowrap;
-    }
-
-    /* ── Cards ───────────────────────────────────────────────────────────── */
-    .lgtf-rank-card {
-        cursor: pointer;
-        background: rgba(255,255,255,.04);
-        transition: background .13s;
-    }
-    .lgtf-rank-card:hover { background: rgba(255,255,255,.11); }
-    .lgtf-rank-inactive   { opacity: .5; }
-
-    /* ── Cell styles ─────────────────────────────────────────────────────── */
-    .lgtf-rank-old-place {
-        text-align: right;
-        font-weight: 600;
-        color: #888;
-        font-size: .75rem;
-        white-space: nowrap;
-    }
-
-    .lgtf-rank-new-place {
-        text-align: right;
-        font-weight: 700;
-        font-size: .75rem;
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 1px;
-        white-space: nowrap;
-    }
-
-    .lgtf-rank-name    { font-weight: 500; }
-    .lgtf-rank-pwb-col { text-align: right; white-space: nowrap; }
-    .lgtf-rank-base-col { text-align: right; font-size: .82rem; white-space: nowrap; }
-
-    /* ── Mobile ──────────────────────────────────────────────────────────── */
-    @@media (max-width: 576px) {
-        .lgtf-rankings-wrapper { max-width: 100%; }
-        .lgtf-rank-header,
-        .lgtf-rank-card {
-            /*  Old   New   Name(1fr)  Pts+Bonus  Base  */
-            grid-template-columns: 25px 50px 1fr 48px 48px;
-            column-gap: 3px;
-            padding: 2px 3px;
-        }
-        /* Clip points cells so they never push other columns */
-        .lgtf-rank-pwb-col,
-        .lgtf-rank-base-col { overflow: hidden; }
-    }
-</style>
-
 @code {
     const int PageSize = 100;
 
@@ -247,19 +205,36 @@ else
     int  totalPages   = 0;
     bool loading      = true;
     bool showInactive = false;
+    bool showForeigns = false;
     string selectedGender = "all";
     string searchQuery    = "";
 
+    // admin edit
+    bool    isAdmin;
+    int?    editingId;
+    int     editPwb;
+    string  editGender = "";
+    bool    saving;
+    string? editError;
+
     private CancellationTokenSource? _searchCts;
 
-    protected override async Task OnInitializedAsync() => await LoadAsync();
-
-    async Task LoadAsync()
+    protected override async Task OnInitializedAsync()
     {
-        loading = true;
-        StateHasChanged();
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        isAdmin = auth.User.IsInRole("Admin");
+        await LoadAsync();
+    }
+
+    async Task LoadAsync(bool showSpinner = true)
+    {
+        if (showSpinner)
+        {
+            loading = true;
+            StateHasChanged();
+        }
         var (list, total) = await RankingService.GetPlayersPageAsync(
-            selectedGender, showInactive, currentPage, PageSize, searchQuery);
+            selectedGender, showInactive, currentPage, PageSize, searchQuery, showForeigns);
         players    = list;
         totalCount = total;
         totalPages = total > 0 ? (total - 1) / PageSize : 0;
@@ -270,13 +245,61 @@ else
     {
         selectedGender = g;
         currentPage    = 0;
+        editingId      = null;
         await LoadAsync();
+    }
+
+    async Task OnToggleForeigns(ChangeEventArgs e)
+    {
+        showForeigns = (bool)(e.Value ?? false);
+        currentPage  = 0;
+        editingId    = null;
+        await LoadAsync();
+    }
+
+    void ToggleEdit(PlayerDbEntry p)
+    {
+        if (editingId == p.Id)
+        {
+            editingId = null;
+            return;
+        }
+
+        editingId  = p.Id;
+        editPwb    = p.PointsWithBonus;
+        editGender = (p.Gender ?? "").Trim().ToLowerInvariant();
+        editError  = null;
+    }
+
+    void CancelEdit() => editingId = null;
+
+    async Task SaveEdit()
+    {
+        if (!isAdmin || editingId is not int id) return;
+
+        saving    = true;
+        editError = null;
+        try
+        {
+            await RankingService.UpdatePlayerAsync(id, editPwb, editGender);
+            editingId = null;
+            await LoadAsync(showSpinner: false);   // keep scroll position
+        }
+        catch (Exception ex)
+        {
+            editError = $"Could not save: {ex.Message}";
+        }
+        finally
+        {
+            saving = false;
+        }
     }
 
     async Task OnToggleActive(ChangeEventArgs e)
     {
         showInactive = (bool)(e.Value ?? false);
         currentPage  = 0;
+        editingId    = null;
         await LoadAsync();
     }
 
@@ -299,11 +322,9 @@ else
     async Task NextPage() { if (currentPage < totalPages) { currentPage++; await LoadAsync(); } }
     async Task GoToPage(int pg)                            { currentPage = pg; await LoadAsync(); }
 
-    async Task GoToPlayer(PlayerDbEntry p)
-    {
-        var playerId = await lgtfImportService.GetOrCreatePlayer(p.Name, p.Surname);
-        Nav.NavigateTo($"/lgtf-tt?pid={playerId}");
-    }
+    // p.Id is the PlayerDB id - the same id the games table uses. (This used to call
+    // GetOrCreatePlayer, which inserted a new duplicate PlayerDB row on every click.)
+    void GoToPlayer(PlayerDbEntry p) => Nav.NavigateTo($"/lgtf-tt?pid={p.Id}");
 
     /// <summary>
     /// Returns page indices to display, using a sliding window around the

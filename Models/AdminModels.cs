@@ -11,6 +11,25 @@ namespace MartinsWeb.Models
         public string Places    { get; set; } = "";
     }
 
+    public class CleanDatabaseResult
+    {
+        public string? BackupFile          { get; set; }
+        public int     DuplicateGroups     { get; set; }
+        public int     DuplicatesRemoved   { get; set; }
+        public int     GamesRepointed      { get; set; }   // game slots moved from a removed duplicate to the keeper
+        public int     GamesResynced       { get; set; }   // game slots re-pointed to PlayerDB.Id by key name
+        public bool    PlayersTableDropped { get; set; }
+        public bool    Vacuumed            { get; set; }
+    }
+
+    public class DeleteExternalResult
+    {
+        public string? BackupFile         { get; set; }
+        public int     CompetitionsDeleted { get; set; }
+        public int     GamesDeleted        { get; set; }
+        public string? ImportFromDate     { get; set; }   // the re-import starts from this date
+    }
+
     public class AdminGameVm
     {
         public int    Id     { get; set; }

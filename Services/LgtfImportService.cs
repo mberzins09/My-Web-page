@@ -114,6 +114,7 @@ namespace MartinsWeb.Services
 
                 DateTime? maxDate = log.LastSinglesDate;
                 int done = 0;
+                var affectedMonths = new SortedSet<(int Year, int Month)>();
 
                 foreach (var ev in toImport)
                 {
@@ -149,13 +150,13 @@ namespace MartinsWeb.Services
                         int compId = await InsertCompetitionAsync(con, name, ce.start_date, places, coef, ev.id, ev.type);
                         progress($"  → {name}  ({ce.start_date})");
 
-                        var games = CollectGames(result);
+                        var games = CollectGames(result, out int carriedOver);
                         int inserted = await InsertGamesAsync(con, compId, games, DateTime.Parse(ce.start_date));
-                        progress($"  {inserted} games inserted.");
+                        progress($"  {inserted} games inserted." + (carriedOver > 0 ? $" ({carriedOver} carried-over group game(s) skipped.)" : ""));
 
                         if (inserted > 0 && DateTime.TryParse(ce.start_date, out var cd))
                         {
-                            await _rankingService.RecalculateTournamentAsync(compId, cd, progress);
+                            affectedMonths.Add((cd.Year, cd.Month));
 
                             if (maxDate == null || cd > maxDate)
                             { 
@@ -173,6 +174,8 @@ namespace MartinsWeb.Services
                 {
                     await UpdateSinglesImportDateAsync(con, maxDate.Value);
                 }
+
+                await RecalculateAffectedMonthsAsync(affectedMonths, progress);
 
                 progress($"\n✅ Import complete. Last date saved: {maxDate?.ToString("yyyy-MM-dd") ?? "(none)"}");
             }
@@ -305,6 +308,7 @@ namespace MartinsWeb.Services
 
                 DateTime? maxDate = log.LastTeamsDate;
                 int done = 0;
+                var affectedMonths = new SortedSet<(int Year, int Month)>();
 
                 foreach (var (eventId, dates) in eventDates)
                 {
@@ -349,13 +353,13 @@ namespace MartinsWeb.Services
                             progress($"  → {nm}");
 
 
-                            var games = CollectGames(result);
+                            var games = CollectGames(result, out _);
                             int inserted = await InsertGamesAsync(con, compId, games, DateTime.Parse(ce.start_date));
                             progress($"  {inserted} games inserted.");
 
                             if (inserted > 0)
                             {
-                                    await _rankingService.RecalculateTournamentAsync(compId, playDate, progress);
+                                affectedMonths.Add((playDate.Year, playDate.Month));
 
                                 if (maxDate == null || playDate > maxDate.Value)
                                 {
@@ -373,9 +377,41 @@ namespace MartinsWeb.Services
                 if (maxDate.HasValue)
                     await UpdateTeamsImportDateAsync(con, maxDate.Value);
 
+                await RecalculateAffectedMonthsAsync(affectedMonths, progress);
+
                 progress($"\n✅ Season teams import complete. Last date: {maxDate?.ToString("yyyy-MM-dd") ?? "(none)"}");
             }
             finally { IsRunning = false; }
+        }
+
+        // ====================================================================
+        //  Automatic recalculation after an import
+        // ====================================================================
+
+        /// <summary>
+        /// Runs the same month recalculation as the manual "Recalculate Month" button for
+        /// every month that received new games. Doing it once at the end (chronologically)
+        /// instead of after each competition means the result never depends on the order
+        /// the API returned the events in.
+        /// </summary>
+        private async Task RecalculateAffectedMonthsAsync(SortedSet<(int Year, int Month)> months, Action<string> progress)
+        {
+            if (months.Count == 0)
+            {
+                return;
+            }
+
+            progress("\n📊 Recalculating PlayerDB rankings…");
+            _playerCache.Clear();
+
+            try
+            {
+                await _rankingService.RecalculateMonthsAsync(months, progress);
+            }
+            catch (Exception ex)
+            {
+                progress($"⚠️ Recalculation failed: {ex.Message}");
+            }
         }
 
         // ====================================================================
@@ -399,6 +435,8 @@ namespace MartinsWeb.Services
                 "ALTER TABLE games ADD COLUMN ranking_data_filled INTEGER DEFAULT 0",
                 "ALTER TABLE competitions ADD COLUMN external_event_id INTEGER DEFAULT 0",
                 "ALTER TABLE competitions ADD COLUMN event_type TEXT DEFAULT 'singles'",
+                // Fails silently while duplicates still exist - the admin "Clean database" button removes them and creates it.
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_PlayerDB_KeyName ON PlayerDB (KeyName) WHERE KeyName IS NOT NULL AND KeyName != ''",
             ];
             foreach (var sql in alters)
             {
@@ -598,6 +636,11 @@ namespace MartinsWeb.Services
             {
                 int p1 = await GetOrCreatePlayerAsync(con, g.player1!.name, g.player1.surname);
                 int p2 = await GetOrCreatePlayerAsync(con, g.player2!.name, g.player2.surname);
+                if (p1 == 0 || p2 == 0)
+                {
+                    continue;   // a player without any name cannot be stored
+                }
+
                 int s1 = int.Parse(g.player1_score!);
                 int s2 = int.Parse(g.player2_score!);
 
@@ -662,31 +705,59 @@ namespace MartinsWeb.Services
             };
         }
 
-        private static async Task<int> GetOrCreatePlayerAsync(
-    SqliteConnection con, string name, string surname)
+        /// <summary>
+        /// Returns PlayerDB.Id for the given name, creating the row only when no row with
+        /// the same KeyName exists. Returns 0 when the name is empty.
+        ///
+        /// (The previous version used INSERT OR IGNORE, but PlayerDB has no UNIQUE
+        /// constraint on KeyName, so nothing was ever ignored and every call added
+        /// another duplicate row.)
+        /// </summary>
+        private static async Task<int> GetOrCreatePlayerAsync(SqliteConnection con, string name, string surname)
         {
+            name    = (name ?? "").Trim();
+            surname = (surname ?? "").Trim();
             string key = NormalizeKey(name + surname);
 
-            var cmd = con.CreateCommand();
-            cmd.CommandText = @"
-        INSERT OR IGNORE INTO PlayerDB
-            (Name, Surname, KeyName,
-             Points, PointsWithBonus, PointsChanged,
-             IsActive, Place, OverallPlace)
-        VALUES
-            ($n, $s, $k,
-             0, 0, 0,
-             1, 0, 0);
+            if (key.Length == 0)
+            {
+                return 0;
+            }
 
-        SELECT Id
-        FROM PlayerDB
-        WHERE KeyName = $k;";
+            var sel = con.CreateCommand();
+            sel.CommandText = @"
+                SELECT Id
+                FROM   PlayerDB
+                WHERE  KeyName = $k
+                ORDER BY CASE WHEN Gender IS NOT NULL AND Gender != '' THEN 0 ELSE 1 END,
+                         CASE WHEN IsActive = 1 THEN 0 ELSE 1 END,
+                         Id
+                LIMIT 1";
+            sel.Parameters.AddWithValue("$k", key);
 
-            cmd.Parameters.AddWithValue("$n", name);
-            cmd.Parameters.AddWithValue("$s", surname);
-            cmd.Parameters.AddWithValue("$k", key);
+            var found = await sel.ExecuteScalarAsync();
+            if (found != null && found != DBNull.Value)
+            {
+                return Convert.ToInt32(found);
+            }
 
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            var ins = con.CreateCommand();
+            ins.CommandText = @"
+                INSERT OR IGNORE INTO PlayerDB
+                    (Name, Surname, KeyName,
+                     Points, PointsWithBonus, PointsChanged,
+                     IsActive, Place, OverallPlace)
+                VALUES
+                    ($n, $s, $k,
+                     0, 0, 0,
+                     1, 0, 0)";
+            ins.Parameters.AddWithValue("$n", name);
+            ins.Parameters.AddWithValue("$s", surname);
+            ins.Parameters.AddWithValue("$k", key);
+            await ins.ExecuteNonQueryAsync();
+
+            // Re-read: also covers the (unique-index) case where the insert was ignored.
+            return Convert.ToInt32(await sel.ExecuteScalarAsync());
         }
 
         private static async Task InsertGameAsync(SqliteConnection con, int compId, int p1, int p2, int s1, int s2, TtRankedPlayer rp1, TtRankedPlayer rp2, DateTime tournamentDate)
@@ -788,18 +859,53 @@ namespace MartinsWeb.Services
         //  Game collection
         // ====================================================================
 
-        private static List<TtGroupGame> CollectGames(TtEventResultResponse ev)
+        /// <summary>
+        /// Collects the singles games of an event.
+        ///
+        /// A tournament has several stages ("nets"), e.g. groups → single elimination → groups.
+        /// When two players meet in one group stage and are in the same group again in a LATER group
+        /// stage, they do not play again - the API shows the earlier result again in the new group.
+        /// That copy must not be stored a second time. Elimination games are always real games,
+        /// so meeting again in an elimination stage (or in a group after one) is stored as a new game.
+        /// </summary>
+        private static List<TtGroupGame> CollectGames(TtEventResultResponse ev, out int carriedOver)
         {
+            carriedOver = 0;
             var games = new List<TtGroupGame>();
             if (ev.nets == null) return games;
 
-            // Standard: singles at top level of groups / elimination trees
-            foreach (var net in ev.nets)
+            // How many games each pair has already played in earlier GROUP stages.
+            var playedInGroups = new Dictionary<(int, int), int>();
+
+            // Standard: singles at top level of groups / elimination trees (stage by stage)
+            foreach (var net in ev.nets.OrderBy(n => n.order))
             {
-                foreach (var g in net.groups?.SelectMany(gr => gr.games ?? []) ?? [])
+                if (net.groups != null)
                 {
-                    TryAdd(games, g);
+                    var stageGames = new List<TtGroupGame>();
+                    foreach (var g in net.groups.SelectMany(gr => gr.games ?? []))
+                    {
+                        TryAdd(stageGames, g);
+                    }
+
+                    // Allowance = games these pairs already played in earlier group stages.
+                    var carriedAllowance = new Dictionary<(int, int), int>(playedInGroups);
+
+                    foreach (var g in stageGames)
+                    {
+                        var key = PairKey(g);
+                        if (carriedAllowance.TryGetValue(key, out int left) && left > 0)
+                        {
+                            carriedAllowance[key] = left - 1;
+                            carriedOver++;
+                            continue;   // same game, shown again in this group
+                        }
+
+                        games.Add(g);
+                        playedInGroups[key] = playedInGroups.GetValueOrDefault(key) + 1;
+                    }
                 }
+
                 foreach (var g in net.elimination_trees?.SelectMany(t => t.rounds ?? []).SelectMany(r => r.games ?? []) ?? [])
                 {
                     TryAdd(games, g);
@@ -839,6 +945,12 @@ namespace MartinsWeb.Services
             }
 
             return games;
+        }
+
+        private static (int, int) PairKey(TtGroupGame g)
+        {
+            int a = g.player1!.id, b = g.player2!.id;
+            return a < b ? (a, b) : (b, a);
         }
 
         private static void TryAdd(List<TtGroupGame> list, TtGroupGame g)
