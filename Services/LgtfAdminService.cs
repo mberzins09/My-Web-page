@@ -52,20 +52,7 @@ namespace MartinsWeb.Services
             var result = new CleanDatabaseResult();
 
             // ── 1. Backup ────────────────────────────────────────────────────
-            var csb    = new SqliteConnectionStringBuilder(_cs);
-            string dbPath = Path.GetFullPath(csb.DataSource);
-            string backupPath = Path.Combine(
-                Path.GetDirectoryName(dbPath)!,
-                $"{Path.GetFileNameWithoutExtension(dbPath)}.backup-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(dbPath)}");
-
-            await using (var bcon = new SqliteConnection(_cs))
-            {
-                await bcon.OpenAsync();
-                var bcmd = bcon.CreateCommand();
-                bcmd.CommandText = $"VACUUM INTO '{backupPath.Replace("'", "''")}'";
-                await bcmd.ExecuteNonQueryAsync();
-            }
-            result.BackupFile = backupPath;
+            result.BackupFile = await CreateBackupAsync();
 
             // ── 2-5. Clean-up in one transaction ─────────────────────────────
             await using (var con = new SqliteConnection(_cs))
@@ -158,6 +145,89 @@ namespace MartinsWeb.Services
             }
             catch { /* not critical */ }
 
+            return result;
+        }
+
+        /// <summary>Consistent copy of the database next to the original (VACUUM INTO). Returns the file path.</summary>
+        private async Task<string> CreateBackupAsync()
+        {
+            var csb = new SqliteConnectionStringBuilder(_cs);
+            string dbPath = Path.GetFullPath(csb.DataSource);
+            string backupPath = Path.Combine(
+                Path.GetDirectoryName(dbPath)!,
+                $"{Path.GetFileNameWithoutExtension(dbPath)}.backup-{DateTime.Now:yyyyMMdd-HHmmss}{Path.GetExtension(dbPath)}");
+
+            await using var bcon = new SqliteConnection(_cs);
+            await bcon.OpenAsync();
+            var bcmd = bcon.CreateCommand();
+            bcmd.CommandText = $"VACUUM INTO '{backupPath.Replace("'", "''")}'";
+            await bcmd.ExecuteNonQueryAsync();
+
+            return backupPath;
+        }
+
+        /// <summary>
+        /// Deletes every singles competition that came from the API (external_event_id &gt; 0) together
+        /// with its games, so it can be imported again. Also moves the singles import date back so
+        /// the next import starts at the earliest deleted tournament. Competitions from the old
+        /// program (external_event_id = 0) and team/season competitions are not touched.
+        /// A backup is created first; the deletes run in one transaction.
+        /// </summary>
+        public async Task<DeleteExternalResult> DeleteExternalSinglesAsync()
+        {
+            var result = new DeleteExternalResult { BackupFile = await CreateBackupAsync() };
+
+            const string isExternalSingles = "external_event_id > 0 AND COALESCE(event_type, 'singles') = 'singles'";
+
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+            await using var tr = (SqliteTransaction)await con.BeginTransactionAsync();
+
+            var minCmd = con.CreateCommand();
+            minCmd.Transaction = tr;
+            minCmd.CommandText = $"SELECT MIN({NormDate}) FROM competitions c WHERE {isExternalSingles}";
+            var min = await minCmd.ExecuteScalarAsync();
+
+            var delGames = con.CreateCommand();
+            delGames.Transaction = tr;
+            delGames.CommandText = $"DELETE FROM games WHERE competition_id IN (SELECT id FROM competitions WHERE {isExternalSingles})";
+            result.GamesDeleted = await delGames.ExecuteNonQueryAsync();
+
+            var delComps = con.CreateCommand();
+            delComps.Transaction = tr;
+            delComps.CommandText = $"DELETE FROM competitions WHERE {isExternalSingles}";
+            result.CompetitionsDeleted = await delComps.ExecuteNonQueryAsync();
+
+            // The import starts (import date - 14 days) back, so push the date 14 days forward
+            // from the earliest deleted tournament to start exactly on it.
+            if (result.CompetitionsDeleted > 0 && min is string minStr && DateTime.TryParse(minStr, out var minDate))
+            {
+                var ddl = con.CreateCommand();
+                ddl.Transaction = tr;
+                ddl.CommandText = @"
+                    CREATE TABLE IF NOT EXISTS import_log (
+                        id                        INTEGER PRIMARY KEY,
+                        import_date               TEXT,
+                        last_singles_date         TEXT,
+                        last_teams_season_date    TEXT,
+                        teams_season_cleanup_done INTEGER DEFAULT 0
+                    )";
+                await ddl.ExecuteNonQueryAsync();
+
+                var log = con.CreateCommand();
+                log.Transaction = tr;
+                log.CommandText = @"
+                    INSERT INTO import_log (id, import_date, last_singles_date)
+                    VALUES (1, $now, $d)
+                    ON CONFLICT(id) DO UPDATE SET last_singles_date = excluded.last_singles_date";
+                log.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("o"));
+                log.Parameters.AddWithValue("$d",   minDate.AddDays(14).ToString("yyyy-MM-dd"));
+                await log.ExecuteNonQueryAsync();
+
+                result.ImportFromDate = minDate.ToString("yyyy-MM-dd");
+            }
+
+            await tr.CommitAsync();
             return result;
         }
 

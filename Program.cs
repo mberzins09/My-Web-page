@@ -19,6 +19,7 @@ builder.Services.AddScoped<LgtfDataService>();
 builder.Services.AddScoped<LgtfRankingService>();
 builder.Services.AddScoped<LgtfImportService>();
 builder.Services.AddScoped<LgtfAdminService>();
+builder.Services.AddScoped<ForeignPointsService>();
 builder.Services.AddScoped<ApiSportsService>();
 builder.Services.AddScoped<WinsService>();
 builder.Services.AddScoped<UserProfileService>();

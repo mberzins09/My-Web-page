@@ -22,6 +22,14 @@ namespace MartinsWeb.Models
         public bool    Vacuumed            { get; set; }
     }
 
+    public class DeleteExternalResult
+    {
+        public string? BackupFile         { get; set; }
+        public int     CompetitionsDeleted { get; set; }
+        public int     GamesDeleted        { get; set; }
+        public string? ImportFromDate     { get; set; }   // the re-import starts from this date
+    }
+
     public class AdminGameVm
     {
         public int    Id     { get; set; }

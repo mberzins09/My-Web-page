@@ -5,6 +5,8 @@
 @using MartinsWeb.Services
 @attribute [Authorize(Roles = "Admin")]
 @inject LgtfAdminService AdminSvc
+@inject ForeignPointsService ForeignSvc
+@inject LgtfImportService ImportSvc
 @inject NavigationManager Nav
 
 <PageTitle>Admin — Tournaments</PageTitle>
@@ -17,6 +19,165 @@
 </nav>
 
 <h4>🛠 Tournament Admin</h4>
+
+@* ── Foreign players: points from rankings1 ────────────────────────────── *@
+<div class="border rounded p-3 mb-3" style="background:rgba(13,110,253,.06)">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+        <div>
+            <label class="form-label mb-1 small">rankings1 month</label>
+            <input type="text" class="form-control form-control-sm" style="width:110px"
+                   placeholder="yyyy-MM" maxlength="7"
+                   value="@_fpMonth" @onchange="e => _fpMonth = e.Value?.ToString() ?? _fpMonth"
+                   disabled="@_fpBusy" />
+        </div>
+        <div class="form-check mb-0 align-self-end pb-1">
+            <input class="form-check-input" type="checkbox" id="fpPreview" @bind="_fpPreview" disabled="@_fpBusy" />
+            <label class="form-check-label small" for="fpPreview">Preview only (don't save)</label>
+        </div>
+        <button class="btn btn-primary btn-sm align-self-end" disabled="@_fpBusy" @onclick="RunForeignPointsAsync">
+            🌍 Give foreigns points
+        </button>
+        @if (_fpBusy)
+        {
+            <span class="spinner-border spinner-border-sm text-primary align-self-end mb-1"></span>
+        }
+    </div>
+    <div class="text-muted small mt-2">
+        Compares players with a gender in PlayerDB and in rankings1, derives a coefficient per points range,
+        and converts the rankings1 points of players without gender into Latvian-scale points.
+        The result counts as their points at the start of that month; after saving, the month is
+        recalculated so games played since then are applied.
+    </div>
+
+    @if (_fpError != null)
+    {
+        <div class="alert alert-danger mt-3 mb-0">@_fpError</div>
+    }
+
+    @if (_fpResult != null)
+    {
+        <div class="alert @(_fpResult.Applied ? "alert-success" : "alert-info") mt-3 mb-2 small">
+            <div>
+                <strong>@(_fpResult.Applied ? "✅ Saved." : "Preview - nothing saved.")</strong>
+                Month @_fpResult.Month:
+                <strong>@_fpResult.ForeignsUpdated</strong> foreign player(s) @(_fpResult.Applied ? "updated" : "would be updated").
+            </div>
+            <div>
+                Calibrated on <strong>@_fpResult.CalibrationPlayers</strong> players with a gender.
+                Typical error on those players: median <strong>@_fpResult.MedianAbsError.ToString("0")</strong> points,
+                average <strong>@_fpResult.MeanAbsError.ToString("0")</strong>.
+            </div>
+            @if (_fpResult.ForeignsWithoutRanking > 0)
+            {
+                <div>@_fpResult.ForeignsWithoutRanking foreign player(s) have no points in rankings1 for this month - left unchanged.</div>
+            }
+            @if (_fpResult.RankingRowsWithoutPlayer > 0)
+            {
+                <div>@_fpResult.RankingRowsWithoutPlayer rankings1 row(s) have a player_id that is not in PlayerDB.</div>
+            }
+        </div>
+
+        @if (_fpResult.RecalcLog.Count > 0)
+        {
+            <div class="border rounded p-2 mb-3"
+                 style="max-height:160px;overflow-y:auto;font-size:.78rem;font-family:monospace;background:rgba(0,0,0,.05)">
+                @foreach (var line in _fpResult.RecalcLog) { <div>@line</div> }
+            </div>
+        }
+
+        <div class="row g-3">
+            <div class="col-12 col-lg-5">
+                <div class="fw-semibold small mb-1">Coefficient per range</div>
+                <table class="table table-sm small mb-0">
+                    <thead><tr><th>rankings1 points</th><th class="text-end">Players</th><th class="text-end">Coefficient</th></tr></thead>
+                    <tbody>
+                        @foreach (var b in _fpResult.Bins)
+                        {
+                            <tr>
+                                <td>@b.MinX.ToString("0") – @b.MaxX.ToString("0")</td>
+                                <td class="text-end">@b.Count</td>
+                                <td class="text-end">× @b.Coefficient.ToString("0.000")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="col-12 col-lg-7">
+                <div class="fw-semibold small mb-1">
+                    Foreign players (highest first@(_fpResult.Rows.Count > 20 ? ", top 20 of " + _fpResult.Rows.Count : ""))
+                </div>
+                <table class="table table-sm small mb-0">
+                    <thead><tr><th>Id</th><th>Player</th><th class="text-end">rankings1</th><th class="text-end">Before</th><th class="text-end">Now</th></tr></thead>
+                    <tbody>
+                        @foreach (var row in _fpResult.Rows.Take(20))
+                        {
+                            <tr>
+                                <td>@row.PlayerId</td>
+                                <td>@row.Name</td>
+                                <td class="text-end">@row.SourcePoints.ToString("0")</td>
+                                <td class="text-end">@row.OldPoints</td>
+                                <td class="text-end"><strong>@row.NewPoints</strong></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@* ── Re-import API tournaments ──────────────────────────────────────────── *@
+<div class="border rounded p-3 mb-3" style="background:rgba(255,193,7,.08)">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        @if (!_extConfirm)
+        {
+            <button class="btn btn-outline-warning btn-sm" disabled="@_extBusy"
+                    @onclick="() => _extConfirm = true">
+                ♻️ Delete API tournaments &amp; re-import
+            </button>
+            <span class="text-muted small">
+                Deletes all singles tournaments that came from the API, with their games, and imports them again
+                (carried-over group games are stored only once). A backup copy is created first.
+            </span>
+        }
+        else
+        {
+            <span class="small fw-semibold">Delete all API singles tournaments and re-import them? This can take several minutes.</span>
+            <button class="btn btn-warning btn-sm" @onclick="RunReimportAsync">Yes, delete &amp; re-import</button>
+            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _extConfirm = false">Cancel</button>
+        }
+
+        @if (_extBusy)
+        {
+            <span class="spinner-border spinner-border-sm text-warning"></span>
+            <span class="small text-muted">Working…</span>
+        }
+    </div>
+
+    @if (_extError != null)
+    {
+        <div class="alert alert-danger mt-3 mb-0">@_extError</div>
+    }
+
+    @if (_extResult != null)
+    {
+        <div class="alert alert-info mt-3 mb-2 small">
+            <div>
+                Deleted <strong>@_extResult.CompetitionsDeleted</strong> tournament(s) and <strong>@_extResult.GamesDeleted</strong> game(s).
+                @if (_extResult.ImportFromDate != null) { <span> Re-import starts from <strong>@_extResult.ImportFromDate</strong>.</span> }
+            </div>
+            <div class="text-break">Backup: <code>@_extResult.BackupFile</code></div>
+        </div>
+    }
+
+    @if (_extLog.Count > 0)
+    {
+        <div class="border rounded p-2"
+             style="max-height:260px;overflow-y:auto;font-size:.78rem;font-family:monospace;white-space:pre-wrap;background:rgba(0,0,0,.05)">
+            @foreach (var line in _extLog) { <div>@line</div> }
+        </div>
+    }
+</div>
 
 @* ── Database clean-up ─────────────────────────────────────────────────── *@
 <div class="border rounded p-3 mb-4" style="background:rgba(220,53,69,.06)">
@@ -161,6 +322,18 @@
     private string? _error = null;
     private List<AdminTournamentVm>? _tournaments = null;
 
+    private string _fpMonth = DateTime.Today.ToString("yyyy-MM");
+    private bool _fpPreview = true;
+    private bool _fpBusy = false;
+    private string? _fpError = null;
+    private ForeignPointsResult? _fpResult = null;
+
+    private bool _extConfirm = false;
+    private bool _extBusy = false;
+    private string? _extError = null;
+    private DeleteExternalResult? _extResult = null;
+    private readonly List<string> _extLog = new();
+
     private bool _confirmClean = false;
     private bool _cleaning = false;
     private string? _cleanError = null;
@@ -209,6 +382,55 @@
         }
         catch (Exception ex) { _error = $"Error: {ex.Message}"; }
         finally { _loading = false; }
+    }
+
+    private async Task RunForeignPointsAsync()
+    {
+        _fpBusy   = true;
+        _fpError  = null;
+        _fpResult = null;
+        StateHasChanged();
+        try
+        {
+            _fpResult = await ForeignSvc.AssignForeignPointsAsync(_fpMonth, apply: !_fpPreview);
+        }
+        catch (Exception ex) { _fpError = ex.Message; }
+        finally { _fpBusy = false; }
+    }
+
+    private async Task RunReimportAsync()
+    {
+        _extConfirm = false;
+        _extError   = null;
+        _extResult  = null;
+        _extLog.Clear();
+
+        if (ImportSvc.IsRunning)
+        {
+            _extError = "An import is already running - wait for it to finish first.";
+            return;
+        }
+
+        _extBusy = true;
+        StateHasChanged();
+        try
+        {
+            _extResult = await AdminSvc.DeleteExternalSinglesAsync();
+            StateHasChanged();
+
+            if (_extResult.CompetitionsDeleted > 0)
+            {
+                await ImportSvc.ImportSinglesAndTeamsAsync(LogExt);
+            }
+        }
+        catch (Exception ex) { _extError = ex.Message; }
+        finally { _extBusy = false; }
+    }
+
+    private void LogExt(string message)
+    {
+        _extLog.Add(message);
+        _ = InvokeAsync(StateHasChanged);
     }
 
     private async Task RunCleanAsync()

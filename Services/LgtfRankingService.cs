@@ -56,6 +56,19 @@ namespace MartinsWeb.Services
             CASE WHEN IsActive = 1 THEN 0 ELSE 1 END,
             Id";
 
+        /// <summary>
+        /// How much a foreign player's points changed during a month's replay. The monthly sync only
+        /// resets players that have a gender, so before a month is replayed again these amounts are
+        /// taken back - that is what stops a replay from counting the same games twice.
+        /// </summary>
+        internal const string ForeignDeltaTableSql = @"
+            CREATE TABLE IF NOT EXISTS foreign_month_delta (
+                month     TEXT    NOT NULL,
+                player_id INTEGER NOT NULL,
+                delta     INTEGER NOT NULL,
+                PRIMARY KEY (month, player_id)
+            )";
+
         public bool IsRecalculating { get; private set; }
 
         public LgtfRankingService(IConfiguration config, IHttpClientFactory httpFactory)
@@ -254,6 +267,8 @@ namespace MartinsWeb.Services
                 return;
             }
 
+            await UndoForeignMonthDeltasAsync(yearMonth);
+
             int i = 0;
             foreach (var (compId, name, compDate) in comps)
             {
@@ -262,6 +277,64 @@ namespace MartinsWeb.Services
             }
 
             progress($"\n✅ {yearMonth} recalculation complete.");
+        }
+
+        /// <summary>Takes back what the previous replay of this month did to foreign players' points.</summary>
+        private async Task UndoForeignMonthDeltasAsync(string yearMonth)
+        {
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+            await EnsureForeignDeltaTableAsync(con);
+            await using var tr = await con.BeginTransactionAsync();
+
+            var undo = con.CreateCommand();
+            undo.Transaction = (SqliteTransaction)tr;
+            undo.CommandText = @"
+                UPDATE PlayerDB
+                SET    Points = MAX(0, COALESCE(Points, 0) - (SELECT d.delta FROM foreign_month_delta d WHERE d.month = $m AND d.player_id = PlayerDB.Id)),
+                       PointsWithBonus = MAX(0, COALESCE(PointsWithBonus, 0) - (SELECT d.delta FROM foreign_month_delta d WHERE d.month = $m AND d.player_id = PlayerDB.Id))
+                WHERE  (Gender IS NULL OR Gender = '')
+                  AND  Id IN (SELECT player_id FROM foreign_month_delta WHERE month = $m)";
+            undo.Parameters.AddWithValue("$m", yearMonth);
+            await undo.ExecuteNonQueryAsync();
+
+            var del = con.CreateCommand();
+            del.Transaction = (SqliteTransaction)tr;
+            del.CommandText = "DELETE FROM foreign_month_delta WHERE month = $m";
+            del.Parameters.AddWithValue("$m", yearMonth);
+            await del.ExecuteNonQueryAsync();
+
+            await tr.CommitAsync();
+        }
+
+        private static async Task EnsureForeignDeltaTableAsync(SqliteConnection con)
+        {
+            var c = con.CreateCommand();
+            c.CommandText = ForeignDeltaTableSql;
+            await c.ExecuteNonQueryAsync();
+        }
+
+        /// <summary>Months (oldest first) from the given month onwards that have competitions.</summary>
+        public async Task<List<(int Year, int Month)>> GetCompetitionMonthsFromAsync(int year, int month)
+        {
+            await using var con = new SqliteConnection(_cs);
+            await con.OpenAsync();
+
+            var cmd = con.CreateCommand();
+            cmd.CommandText = $@"
+                SELECT ym FROM (SELECT DISTINCT strftime('%Y-%m', ({NormDate})) AS ym FROM competitions)
+                WHERE ym >= $ym ORDER BY ym";
+            cmd.Parameters.AddWithValue("$ym", $"{year:D4}-{month:D2}");
+
+            var result = new List<(int, int)>();
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                if (!r.IsDBNull(0) && DateTime.TryParseExact(r.GetString(0), "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+                    result.Add((d.Year, d.Month));
+            }
+
+            return result;
         }
 
         private async Task<(int Year, int Month)?> GetLatestCompetitionMonthAsync()
@@ -432,7 +505,8 @@ namespace MartinsWeb.Services
             loadCmd.CommandText = @"
                 SELECT Id, KeyName,
                        COALESCE(Points, 0), COALESCE(PointsWithBonus, 0),
-                       COALESCE(IsActive, 0), COALESCE(Place, 0)
+                       COALESCE(IsActive, 0), COALESCE(Place, 0),
+                       CASE WHEN Gender IS NULL OR Gender = '' THEN 1 ELSE 0 END
                 FROM PlayerDB
                 WHERE KeyName IS NOT NULL AND KeyName != ''
                 ORDER BY " + KeeperOrder;
@@ -448,9 +522,11 @@ namespace MartinsWeb.Services
                     {
                         DbId        = r.GetInt32(0),
                         Points      = pts,
+                        StartPoints = pts,
                         BonusPoints = pwb - pts,  // preserved across recalculation
                         WasActive   = r.GetInt32(4) == 1,
                         Place       = r.GetInt32(5),
+                        IsForeign   = r.GetInt32(6) == 1,
                         Participated = false
                     };
                 }
@@ -522,7 +598,9 @@ namespace MartinsWeb.Services
             }
 
             // Persist everything in one transaction
+            await EnsureForeignDeltaTableAsync(con);
             await using var tr = await con.BeginTransactionAsync();
+            string yearMonth = compDate.ToString("yyyy-MM", CultureInfo.InvariantCulture);
 
             // Write PlayerDB-sourced points into the games table
             foreach (var (gid, p1p, p2p, p1wb, p2wb, p1a, p2a, p1pl, p2pl) in gameTableUpdates)
@@ -549,6 +627,20 @@ namespace MartinsWeb.Services
             {
                 int newPts = Math.Max(0, state.Points);
                 int newPwb = newPts + Math.Max(0, state.BonusPoints);
+
+                // Foreign players are not reset by the monthly sync - remember how much this month
+                // moved them so a later replay of the month can take it back first.
+                if (state.IsForeign && newPts != state.StartPoints)
+                {
+                    var rec = con.CreateCommand(); rec.Transaction = (SqliteTransaction)tr;
+                    rec.CommandText = @"
+                        INSERT INTO foreign_month_delta (month, player_id, delta) VALUES ($m, $id, $d)
+                        ON CONFLICT(month, player_id) DO UPDATE SET delta = delta + excluded.delta";
+                    rec.Parameters.AddWithValue("$m",  yearMonth);
+                    rec.Parameters.AddWithValue("$id", state.DbId);
+                    rec.Parameters.AddWithValue("$d",  newPts - state.StartPoints);
+                    await rec.ExecuteNonQueryAsync();
+                }
 
                 var upd = con.CreateCommand(); upd.Transaction = (SqliteTransaction)tr;
                 upd.CommandText = @"UPDATE PlayerDB
@@ -804,6 +896,8 @@ namespace MartinsWeb.Services
             public int  BonusPoints  { get; set; }
             public int  Place        { get; set; }
             public bool WasActive    { get; set; }
+            public bool IsForeign    { get; set; }
+            public int  StartPoints  { get; set; }   // points when this competition's replay began
             public bool Participated { get; set; }
         }
     }

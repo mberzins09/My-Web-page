@@ -150,9 +150,9 @@ namespace MartinsWeb.Services
                         int compId = await InsertCompetitionAsync(con, name, ce.start_date, places, coef, ev.id, ev.type);
                         progress($"  → {name}  ({ce.start_date})");
 
-                        var games = CollectGames(result);
+                        var games = CollectGames(result, out int carriedOver);
                         int inserted = await InsertGamesAsync(con, compId, games, DateTime.Parse(ce.start_date));
-                        progress($"  {inserted} games inserted.");
+                        progress($"  {inserted} games inserted." + (carriedOver > 0 ? $" ({carriedOver} carried-over group game(s) skipped.)" : ""));
 
                         if (inserted > 0 && DateTime.TryParse(ce.start_date, out var cd))
                         {
@@ -353,7 +353,7 @@ namespace MartinsWeb.Services
                             progress($"  → {nm}");
 
 
-                            var games = CollectGames(result);
+                            var games = CollectGames(result, out _);
                             int inserted = await InsertGamesAsync(con, compId, games, DateTime.Parse(ce.start_date));
                             progress($"  {inserted} games inserted.");
 
@@ -859,18 +859,53 @@ namespace MartinsWeb.Services
         //  Game collection
         // ====================================================================
 
-        private static List<TtGroupGame> CollectGames(TtEventResultResponse ev)
+        /// <summary>
+        /// Collects the singles games of an event.
+        ///
+        /// A tournament has several stages ("nets"), e.g. groups → single elimination → groups.
+        /// When two players meet in one group stage and are in the same group again in a LATER group
+        /// stage, they do not play again - the API shows the earlier result again in the new group.
+        /// That copy must not be stored a second time. Elimination games are always real games,
+        /// so meeting again in an elimination stage (or in a group after one) is stored as a new game.
+        /// </summary>
+        private static List<TtGroupGame> CollectGames(TtEventResultResponse ev, out int carriedOver)
         {
+            carriedOver = 0;
             var games = new List<TtGroupGame>();
             if (ev.nets == null) return games;
 
-            // Standard: singles at top level of groups / elimination trees
-            foreach (var net in ev.nets)
+            // How many games each pair has already played in earlier GROUP stages.
+            var playedInGroups = new Dictionary<(int, int), int>();
+
+            // Standard: singles at top level of groups / elimination trees (stage by stage)
+            foreach (var net in ev.nets.OrderBy(n => n.order))
             {
-                foreach (var g in net.groups?.SelectMany(gr => gr.games ?? []) ?? [])
+                if (net.groups != null)
                 {
-                    TryAdd(games, g);
+                    var stageGames = new List<TtGroupGame>();
+                    foreach (var g in net.groups.SelectMany(gr => gr.games ?? []))
+                    {
+                        TryAdd(stageGames, g);
+                    }
+
+                    // Allowance = games these pairs already played in earlier group stages.
+                    var carriedAllowance = new Dictionary<(int, int), int>(playedInGroups);
+
+                    foreach (var g in stageGames)
+                    {
+                        var key = PairKey(g);
+                        if (carriedAllowance.TryGetValue(key, out int left) && left > 0)
+                        {
+                            carriedAllowance[key] = left - 1;
+                            carriedOver++;
+                            continue;   // same game, shown again in this group
+                        }
+
+                        games.Add(g);
+                        playedInGroups[key] = playedInGroups.GetValueOrDefault(key) + 1;
+                    }
                 }
+
                 foreach (var g in net.elimination_trees?.SelectMany(t => t.rounds ?? []).SelectMany(r => r.games ?? []) ?? [])
                 {
                     TryAdd(games, g);
@@ -910,6 +945,12 @@ namespace MartinsWeb.Services
             }
 
             return games;
+        }
+
+        private static (int, int) PairKey(TtGroupGame g)
+        {
+            int a = g.player1!.id, b = g.player2!.id;
+            return a < b ? (a, b) : (b, a);
         }
 
         private static void TryAdd(List<TtGroupGame> list, TtGroupGame g)

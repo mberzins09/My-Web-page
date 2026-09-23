@@ -127,6 +127,8 @@ namespace MartinsWeb.Models
 
     public class TtNet
     {
+        public int                      order             { get; set; }   // stage number within the tournament (1, 2, 3 ...)
+        public string?                  type              { get; set; }   // "groups", "single_elimination", ...
         public List<TtGroup>?           groups          { get; set; }
         public List<TtEliminationTree>? elimination_trees { get; set; }
     }
