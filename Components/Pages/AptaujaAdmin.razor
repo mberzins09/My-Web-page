@@ -1,0 +1,233 @@
+@page "/aptauja/admin"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject SurveyService SurveySvc
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Aptaujas — Admin</PageTitle>
+
+<div class="container py-4" style="max-width:800px">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">📊 Aptaujas</h3>
+        @if (!creating)
+        {
+            <button class="btn btn-primary btn-sm" @onclick="StartCreate">➕ Jauna aptauja</button>
+        }
+    </div>
+
+    @if (creating)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5>@(editingId == null ? "Jauna aptauja" : "Rediģēt jautājumu")</h5>
+
+                <div class="mb-3">
+                    <label class="form-label">Jautājums</label>
+                    <textarea class="form-control" rows="2" placeholder="Piem.: Nosauc 5 savus mīļākos dzīvniekus"
+                              @bind="formQuestion" @bind:event="oninput"></textarea>
+                </div>
+
+                @if (formError != null)
+                {
+                    <div class="alert alert-danger">@formError</div>
+                }
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" disabled="@saving" @onclick="SaveAsync">
+                        @(saving ? "Saglabā..." : "Saglabāt")
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@saving" @onclick="CancelForm">Atcelt</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (viewingResultsId is int rid)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                @if (results == null)
+                {
+                    <p class="text-muted">Ielādē...</p>
+                }
+                else
+                {
+                    <div class="d-flex justify-content-between align-items-start">
+                        <h5>@results.Question</h5>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => viewingResultsId = null">✕ Aizvērt</button>
+                    </div>
+                    <p class="text-muted small">Kopā atbilžu: @results.Answers.Count</p>
+
+                    @if (results.Answers.Count == 0)
+                    {
+                        <p class="text-muted">Vēl nav neviena atbilde.</p>
+                    }
+                    else
+                    {
+                        <div class="list-group">
+                            @foreach (var a in results.Answers)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <div style="white-space:pre-wrap">@a.Text</div>
+                                        <button class="btn btn-sm btn-outline-danger flex-shrink-0"
+                                                title="Dzēst" @onclick="() => DeleteAnswerAsync(a.Id)">✕</button>
+                                    </div>
+                                    <div class="text-muted small mt-1">@a.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    @if (loadingList)
+    {
+        <p class="text-muted">Ielādē...</p>
+    }
+    else if (surveys == null || surveys.Count == 0)
+    {
+        <p class="text-muted">Vēl nav neviena aptaujas.</p>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var s in surveys)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div>
+                            <div class="fw-semibold" style="white-space:pre-wrap">@s.Question</div>
+                            <div class="text-muted small">
+                                @s.ResponseCount atbildes ·
+                                @(s.IsActive ? "aktīva" : "slēgta") ·
+                                @s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd")
+                            </div>
+                            <div class="text-muted small text-break">
+                                Saite: <code>@GetLink(s.Id)</code>
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            <button class="btn btn-sm btn-outline-primary" @onclick="() => CopyLink(s.Id)">🔗 Kopēt</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ShowResults(s.Id)">📄 Atbildes</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartEdit(s)">✎ Rediģēt</button>
+                            <button class="btn btn-sm @(s.IsActive ? "btn-outline-warning" : "btn-outline-success")"
+                                    @onclick="() => ToggleActiveAsync(s)">
+                                @(s.IsActive ? "Slēgt" : "Atvērt")
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(s.Id)">Dzēst</button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    List<SurveyAdminVm>? surveys;
+    bool loadingList = true;
+
+    bool creating = false;
+    bool saving = false;
+    int? editingId;
+    string formQuestion = "";
+    string? formError;
+
+    int? viewingResultsId;
+    SurveyResults? results;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync()
+    {
+        loadingList = true;
+        surveys = await SurveySvc.GetAllAsync();
+        loadingList = false;
+    }
+
+    string GetLink(int id) => $"{Nav.BaseUri.TrimEnd('/')}/aptauja/{id}";
+
+    async Task CopyLink(int id)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", GetLink(id));
+    }
+
+    void StartCreate()
+    {
+        editingId    = null;
+        formQuestion = "";
+        formError    = null;
+        creating     = true;
+        viewingResultsId = null;
+    }
+
+    void StartEdit(SurveyAdminVm s)
+    {
+        editingId    = s.Id;
+        formQuestion = s.Question;
+        formError    = null;
+        creating     = true;
+        viewingResultsId = null;
+    }
+
+    void CancelForm() => creating = false;
+
+    async Task SaveAsync()
+    {
+        formError = null;
+        saving = true;
+        try
+        {
+            if (editingId is int id)
+                await SurveySvc.UpdateQuestionAsync(id, formQuestion);
+            else
+                await SurveySvc.CreateAsync(formQuestion);
+
+            creating = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            formError = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    async Task ShowResults(int id)
+    {
+        creating = false;
+        viewingResultsId = id;
+        results = null;
+        results = await SurveySvc.GetResultsAsync(id);
+    }
+
+    async Task DeleteAnswerAsync(int answerId)
+    {
+        await SurveySvc.DeleteAnswerAsync(answerId);
+        if (viewingResultsId is int id) results = await SurveySvc.GetResultsAsync(id);
+        await LoadAsync();
+    }
+
+    async Task ToggleActiveAsync(SurveyAdminVm s)
+    {
+        await SurveySvc.SetActiveAsync(s.Id, !s.IsActive);
+        await LoadAsync();
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await SurveySvc.DeleteAsync(id);
+        if (viewingResultsId == id) viewingResultsId = null;
+        await LoadAsync();
+    }
+}

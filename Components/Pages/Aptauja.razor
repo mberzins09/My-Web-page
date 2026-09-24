@@ -1,0 +1,83 @@
+@page "/aptauja/{Id:int}"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject SurveyService SurveySvc
+
+<PageTitle>Aptauja</PageTitle>
+
+<div class="container py-4" style="max-width:600px">
+    @if (loading)
+    {
+        <p class="text-muted">Ielādē...</p>
+    }
+    else if (survey == null)
+    {
+        <div class="alert alert-warning">Šāda aptauja neeksistē.</div>
+    }
+    else if (answered)
+    {
+        <div class="alert alert-success">✅ Paldies par atbildi!</div>
+    }
+    else if (!survey.IsActive)
+    {
+        <div class="alert alert-secondary">Šī aptauja vairs nav aktīva.</div>
+    }
+    else
+    {
+        <h4 class="mb-3">@survey.Question</h4>
+        <textarea class="form-control" rows="5" maxlength="4000"
+                  placeholder="Raksti šeit..."
+                  @bind="text" @bind:event="oninput" disabled="@sending"></textarea>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+            <span class="text-muted small">@text.Length / 4000</span>
+            <button class="btn btn-primary" disabled="@(sending || string.IsNullOrWhiteSpace(text))"
+                    @onclick="SubmitAsync">
+                @(sending ? "Sūta..." : "Nosūtīt")
+            </button>
+        </div>
+        @if (error != null)
+        {
+            <div class="alert alert-danger mt-3">@error</div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    bool loading = true;
+    bool sending = false;
+    bool answered = false;
+    string text = "";
+    string? error;
+    SurveyEntry? survey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        survey  = await SurveySvc.GetForAnsweringAsync(Id);
+        loading = false;
+    }
+
+    async Task SubmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        sending = true;
+        error   = null;
+        try
+        {
+            bool ok = await SurveySvc.AnswerAsync(Id, text);
+            if (ok) answered = true;
+            else    error = "Neizdevās nosūtīt - aptauja varētu būt slēgta.";
+        }
+        catch (Exception ex)
+        {
+            error = $"Neizdevās nosūtīt: {ex.Message}";
+        }
+        finally
+        {
+            sending = false;
+        }
+    }
+}
