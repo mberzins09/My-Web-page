@@ -1,0 +1,130 @@
+@page "/ieteikumi"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject SuggestionService SuggestionSvc
+@inject AuthenticationStateProvider AuthProvider
+
+<PageTitle>Ieteikumi</PageTitle>
+
+<div class="container py-4" style="max-width:700px">
+    <h3>💡 Ieteikumi</h3>
+    <p class="text-muted">
+        Šeit vari atstāt savu atsauksmi vai ieteikumu par lapu. Nav nepieciešams pierakstīties,
+        un tavs ieraksts tiek saglabāts anonīmi.
+    </p>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <textarea class="form-control" rows="5" maxlength="4000"
+                      placeholder="Raksti šeit..."
+                      @bind="text" @bind:event="oninput" disabled="@sending"></textarea>
+            <div class="d-flex justify-content-between align-items-center mt-2">
+                <span class="text-muted small">@text.Length / 4000</span>
+                <button class="btn btn-primary" disabled="@(sending || string.IsNullOrWhiteSpace(text))"
+                        @onclick="SubmitAsync">
+                    @(sending ? "Sūta..." : "Nosūtīt")
+                </button>
+            </div>
+            @if (submitted)
+            {
+                <div class="alert alert-success mt-3 mb-0">✅ Paldies! Tavs ieteikums saglabāts.</div>
+            }
+            @if (error != null)
+            {
+                <div class="alert alert-danger mt-3 mb-0">@error</div>
+            }
+        </div>
+    </div>
+
+    <AuthorizeView Roles="Admin">
+        <Authorized>
+            <hr />
+            <h5>Visi ieteikumi (redzams tikai adminam)</h5>
+
+            @if (loadingList)
+            {
+                <p class="text-muted">Ielādē...</p>
+            }
+            else if (suggestions == null || suggestions.Count == 0)
+            {
+                <p class="text-muted">Vēl nav neviena ieteikuma.</p>
+            }
+            else
+            {
+                <div class="list-group">
+                    @foreach (var s in suggestions)
+                    {
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div style="white-space:pre-wrap">@s.Text</div>
+                                <button class="btn btn-sm btn-outline-danger flex-shrink-0"
+                                        title="Dzēst" @onclick="() => DeleteAsync(s.Id)">✕</button>
+                            </div>
+                            <div class="text-muted small mt-1">@s.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</div>
+                        </div>
+                    }
+                </div>
+            }
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+@code {
+    string text = "";
+    bool sending = false;
+    bool submitted = false;
+    string? error;
+
+    bool loadingList = true;
+    List<SuggestionEntry>? suggestions;
+    bool isAdmin;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        isAdmin = auth.User.IsInRole("Admin");
+        if (isAdmin)
+        {
+            await LoadListAsync();
+        }
+    }
+
+    async Task LoadListAsync()
+    {
+        loadingList = true;
+        suggestions = await SuggestionSvc.GetAllAsync();
+        loadingList = false;
+    }
+
+    async Task SubmitAsync()
+    {
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        sending   = true;
+        error     = null;
+        submitted = false;
+        try
+        {
+            await SuggestionSvc.AddAsync(text);
+            text = "";
+            submitted = true;
+            if (isAdmin) await LoadListAsync();
+        }
+        catch (Exception ex)
+        {
+            error = $"Neizdevās saglabāt: {ex.Message}";
+        }
+        finally
+        {
+            sending = false;
+        }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await SuggestionSvc.DeleteAsync(id);
+        await LoadListAsync();
+    }
+}
