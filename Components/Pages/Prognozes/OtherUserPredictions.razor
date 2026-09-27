@@ -100,7 +100,7 @@
                                     pred!.PredictedHomeScore, pred.PredictedAwayScore, pred.PredictedIsOvertime,
                                     game.HomeScore.Value, game.AwayScore.Value, game.IsOvertime,game.Stage, ResolvedCalcType);
 
-                            <div class="tt-card pred-card">
+                            <div class="tt-card pred-card" @key="game.Id">
                                 <div class="pred-card-top">
                                     <span class="pred-date">@game.GameDate.ToLocalTime().ToString("MMM dd HH:mm")</span>
                                     <span class="pred-match">@game.HomeTeam vs @game.AwayTeam</span>

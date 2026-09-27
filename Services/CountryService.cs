@@ -28,13 +28,36 @@ namespace MartinsWeb.Services
             _                                           => "Football",
         };
 
+        /// <summary>The sport to use for ranking lookups for this tournament - its own SportType when
+        /// set, otherwise the historic guess from PointsCalculationType for older tournaments.</summary>
+        public static string ResolveSport(Tournament tournament) =>
+            !string.IsNullOrWhiteSpace(tournament.SportType) ? tournament.SportType : SportFor(tournament.PointsCalculationType);
+
         public CountryService(AppDbContext db) => _db = db;
 
         public async Task<List<Country>> GetAllAsync()
-            => await _db.Countries
+        {
+            var list = await _db.Countries
                 .Include(c => c.Rankings)
                 .OrderBy(c => c.Name)
                 .ToListAsync();
+
+            // Self-heal anything saved before NormalizeFlag existed (e.g. a plain "LV" typed into
+            // the flag box before this fix, still literally "LV" in the database).
+            bool anyFixed = false;
+            foreach (var c in list)
+            {
+                string normalized = NormalizeFlag(c.FlagEmoji);
+                if (normalized != c.FlagEmoji)
+                {
+                    c.FlagEmoji = normalized;
+                    anyFixed = true;
+                }
+            }
+            if (anyFixed) await _db.SaveChangesAsync();
+
+            return list;
+        }
 
         public async Task<Country> CreateAsync(string name, string flagEmoji)
         {
@@ -126,16 +149,41 @@ namespace MartinsWeb.Services
         /// parentheses. Falls back gracefully when the country or the ranking isn't found, so callers
         /// don't need to null-check before formatting a team name.
         /// </summary>
+        /// <summary>
+        /// "🇱🇻 Latvia(12)" - flag, name and, when a ranking can be found, the rank in parentheses.
+        /// Prefers the exact year; if that year has no ranking for this sport, falls back to the
+        /// most recent ranking at or before that year (e.g. a 2027 tournament uses a country's 2026
+        /// ranking if 2027 was never entered), and failing that, the earliest ranking available for
+        /// any later year. Falls back gracefully when the country or any ranking isn't found, so
+        /// callers don't need to null-check before formatting a team name.
+        /// </summary>
         public static string Format(Country? country, string? sport, int? year)
         {
             if (country == null) return "";
 
             string flag = string.IsNullOrEmpty(country.FlagEmoji) ? "" : country.FlagEmoji + " ";
-            var rank = (sport != null && year.HasValue)
-                ? country.Rankings.FirstOrDefault(r => r.Sport == sport && r.Year == year.Value)
-                : null;
+            var rank = FindBestRanking(country, sport, year);
 
             return rank != null ? $"{flag}{country.Name}({rank.Rank})" : $"{flag}{country.Name}";
+        }
+
+        private static CountryRanking? FindBestRanking(Country country, string? sport, int? year)
+        {
+            if (sport == null) return null;
+
+            var candidates = country.Rankings.Where(r => r.Sport == sport).ToList();
+            if (candidates.Count == 0) return null;
+            if (year == null) return candidates.OrderByDescending(r => r.Year).First();   // most recent available
+
+            var exact = candidates.FirstOrDefault(r => r.Year == year.Value);
+            if (exact != null) return exact;
+
+            // No exact year - use the most recent ranking at or before this year, if any.
+            var atOrBefore = candidates.Where(r => r.Year <= year.Value).OrderByDescending(r => r.Year).FirstOrDefault();
+            if (atOrBefore != null) return atOrBefore;
+
+            // Nothing that old exists yet (e.g. only future years are set) - use the earliest available.
+            return candidates.OrderBy(r => r.Year).FirstOrDefault();
         }
     }
 }

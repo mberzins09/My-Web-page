@@ -63,7 +63,7 @@ else
                 var canOT = PredictionHelper.CanHaveOT(match, resolvedCalcType,
                                 scoreInputs[match.Id].Home - scoreInputs[match.Id].Away);
 
-                <div class="tt-card pred-card-v2">
+                <div class="tt-card pred-card-v2" @key="match.Id">
 
                     @* ── Row 1: date · stage ──────────────────────────── *@
                     <div class="pcv2-row1">

@@ -52,7 +52,7 @@ else
                         <th class="team-name-col"></th>
                         @foreach (var s in sorted)
                         {
-                            <th class="text-center team-col" title="@s.Team">@s.Team</th>
+                            <th @key="s.Team" class="text-center team-col" title="@s.Team">@s.Team</th>
                         }
                         <th class="text-center stat-col">Pts</th>
                         <th class="text-center stat-col">±</th>
@@ -64,25 +64,25 @@ else
                     {
                         var row   = sorted[i];
                         var place = i + 1;
-                        <tr class="table-dark">
+                        <tr @key="row.Team" class="table-dark">
                             <td class="team-name-col"><strong>@row.Team</strong></td>
                             @foreach (var col in sorted)
                             {
                                 @if (row.Team == col.Team)
                                 {
-                                    <td class="black-cell"></td>
+                                    <td @key="col.Team" class="black-cell"></td>
                                 }
                                 else
                                 {
                                     var pairGames = FindGames(gamesInGroup, row.Team, col.Team);
-                                    <td class="text-center score-cell">
+                                    <td @key="col.Team" class="text-center score-cell">
                                         @foreach (var game in pairGames)
                                         {
                                             @if (game.HomeScore != null)
                                             {
                                                 int myG  = game.HomeTeam == row.Team ? game.HomeScore.Value : game.AwayScore!.Value;
                                                 int oppG = game.HomeTeam == row.Team ? game.AwayScore!.Value : game.HomeScore.Value;
-                                                <div>@myG:@oppG</div>
+                                                <div @key="game.Id">@myG:@oppG</div>
                                             }
                                         }
                                     </td>

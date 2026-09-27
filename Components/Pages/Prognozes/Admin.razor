@@ -27,7 +27,8 @@
                     @(matchingTeams ? "..." : "🌍 Match teams to countries")
                 </button>
                 <span class="text-muted" style="font-size:.82rem">
-                    Rewrites plain-text team names that exactly match a country in /valstis to "🇱🇻 Latvia(12)" - safe to click more than once.
+                    Rewrites plain-text team names that exactly match a country in /valstis, and refreshes the rank shown for
+                    teams already linked to a country (useful after adding/editing a ranking) - safe to click more than once.
                 </span>
             </div>
             @if (matchResult != null)
@@ -48,20 +49,18 @@
                 @* ── Left: Add Single Game ──────────────────────────────────────── *@
                 <div class="col-12 col-xl-6">
                     <h4>Add Single Game</h4>
-                    <label class="form-label mb-1 small">Home team <span class="text-muted">(pick 2+ for a not-yet-decided playoff slot, e.g. winner of two earlier games)</span></label>
-                    <select class="form-select mb-2" multiple size="8" @bind="singleHomeCountryIds">
-                        @foreach (var c in countries)
-                        {
-                            <option value="@c.Id">@c.FlagEmoji @c.Name</option>
-                        }
-                    </select>
+                    <label class="form-label mb-1 small">Home team <span class="text-muted">(check 2+ for a not-yet-decided playoff slot, e.g. winner of two earlier games)</span></label>
+                    <div class="mb-2">
+                        <CountryCheckboxList Countries="countries" Selected="singleHomeCountryIds"
+                                             SelectedChanged="ids => singleHomeCountryIds = ids"
+                                             Label="home team" IdPrefix="sh" MaxHeight="220" />
+                    </div>
                     <label class="form-label mb-1 small">Away team</label>
-                    <select class="form-select mb-2" multiple size="8" @bind="singleAwayCountryIds">
-                        @foreach (var c in countries)
-                        {
-                            <option value="@c.Id">@c.FlagEmoji @c.Name</option>
-                        }
-                    </select>
+                    <div class="mb-2">
+                        <CountryCheckboxList Countries="countries" Selected="singleAwayCountryIds"
+                                             SelectedChanged="ids => singleAwayCountryIds = ids"
+                                             Label="away team" IdPrefix="sa" MaxHeight="220" />
+                    </div>
                     <details class="mb-2">
                         <summary class="text-muted" style="font-size:.82rem; cursor:pointer">Or type a team name manually</summary>
                         <input class="form-control mt-1 mb-1" @bind="gameForm.HomeTeam" placeholder="Home Team (overrides selection above)" />
@@ -183,7 +182,7 @@
                         @foreach (var game in filteredGames)
                         {
                             var isEditing = editingGameId == game.Id;
-                            <tr class="@(isEditing ? "table-warning" : "table-dark")">
+                            <tr @key="game.Id" class="@(isEditing ? "table-warning" : "table-dark")">
                                 @if (isEditing)
                                 {
                                     <td style="white-space:nowrap">
@@ -229,18 +228,16 @@
                                         @if (editUseSelection)
                                         {
                                             <div class="d-flex gap-1">
-                                                <select class="form-select form-select-sm" multiple size="6" @bind="editHomeCountryIds">
-                                                    @foreach (var c in countries)
-                                                    {
-                                                        <option value="@c.Id">@c.FlagEmoji @c.Name</option>
-                                                    }
-                                                </select>
-                                                <select class="form-select form-select-sm" multiple size="6" @bind="editAwayCountryIds">
-                                                    @foreach (var c in countries)
-                                                    {
-                                                        <option value="@c.Id">@c.FlagEmoji @c.Name</option>
-                                                    }
-                                                </select>
+                                                <div style="min-width:150px">
+                                                    <CountryCheckboxList Countries="countries" Selected="editHomeCountryIds"
+                                                                         SelectedChanged="ids => editHomeCountryIds = ids"
+                                                                         Label="home" IdPrefix="eh" MaxHeight="160" />
+                                                </div>
+                                                <div style="min-width:150px">
+                                                    <CountryCheckboxList Countries="countries" Selected="editAwayCountryIds"
+                                                                         SelectedChanged="ids => editAwayCountryIds = ids"
+                                                                         Label="away" IdPrefix="ea" MaxHeight="160" />
+                                                </div>
                                             </div>
                                             <div class="text-muted" style="font-size:.72rem">2+ picks = playoff placeholder slot</div>
                                         }
@@ -575,8 +572,8 @@
     string? gameMessage;
     string? gameError;
     List<Country> countries = new();
-    string[] singleHomeCountryIds = [];
-    string[] singleAwayCountryIds = [];
+    HashSet<int> singleHomeCountryIds = new();
+    HashSet<int> singleAwayCountryIds = new();
 
     // Group / batch form (top-right panel)
     string       groupName  = "";
@@ -596,8 +593,8 @@
     int     editDay, editMonth, editYear, editHour, editMinute;
     string? editDateError;
     bool     editUseSelection = true;
-    string[] editHomeCountryIds = [];
-    string[] editAwayCountryIds = [];
+    HashSet<int> editHomeCountryIds = new();
+    HashSet<int> editAwayCountryIds = new();
 
     // Group team editing
     int?         editingGroupId;
@@ -740,7 +737,8 @@
         await GameService.AddMatchAsync(gameForm);
         await PlayoffSvc.ResolveAsync(tournament!.Id);
         gameForm    = new() { GameDate = DateTime.Now };
-        singleHomeCountryIds = singleAwayCountryIds = [];
+        singleHomeCountryIds = new();
+        singleAwayCountryIds = new();
         gameError   = null;
         gameMessage = "Game added!";
         await LoadData();
@@ -758,7 +756,7 @@
         var country = countries.FirstOrDefault(c => c.Id == id);
         if (country == null) return "";
 
-        string sport = CountryService.SportFor(tournament!.PointsCalculationType);
+        string sport = CountryService.ResolveSport(tournament!);
         return CountryService.Format(country, sport, tournament.Year);
     }
 
@@ -770,14 +768,9 @@
     ///                 earlier round decides which of them advances.
     /// Nothing picked → ("", null).
     /// </summary>
-    (string Text, string? Ids) ResolveSlot(string[] countryIdTexts)
+    (string Text, string? Ids) ResolveSlot(HashSet<int> selectedIds)
     {
-        var ids = countryIdTexts
-            .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .Distinct()
-            .ToList();
+        var ids = selectedIds.ToList();
 
         if (ids.Count == 0) return ("", null);
 
@@ -785,7 +778,7 @@
         {
             var country = countries.FirstOrDefault(c => c.Id == ids[0]);
             if (country == null) return ("", null);
-            string sport = CountryService.SportFor(tournament!.PointsCalculationType);
+            string sport = CountryService.ResolveSport(tournament!);
             return (CountryService.Format(country, sport, tournament.Year), ids[0].ToString());
         }
 
@@ -806,9 +799,9 @@
 
         // Pre-select the dropdown if this game already tracks countries; otherwise default to the
         // plain-text tab so an old/manually-typed game doesn't show an empty, misleading selection.
-        editHomeCountryIds = PlayoffService.ParseIds(game.HomeCountryIds).Select(id => id.ToString()).ToArray();
-        editAwayCountryIds = PlayoffService.ParseIds(game.AwayCountryIds).Select(id => id.ToString()).ToArray();
-        editUseSelection   = editHomeCountryIds.Length > 0 || editAwayCountryIds.Length > 0;
+        editHomeCountryIds = PlayoffService.ParseIds(game.HomeCountryIds).ToHashSet();
+        editAwayCountryIds = PlayoffService.ParseIds(game.AwayCountryIds).ToHashSet();
+        editUseSelection   = editHomeCountryIds.Count > 0 || editAwayCountryIds.Count > 0;
 
         var local = game.GameDate.Kind == DateTimeKind.Utc
             ? game.GameDate.ToLocalTime()
@@ -921,18 +914,34 @@
         groupError = null;
         if (string.IsNullOrWhiteSpace(groupName)) { groupError = "Group name is required."; return; }
 
-        List<string> filled;
+        List<GroupTeam> teamEntries;
         if (!string.IsNullOrWhiteSpace(teamNamesManual))
         {
-            filled = teamNamesManual.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+            teamEntries = teamNamesManual
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => new GroupTeam { TeamName = t })
+                .ToList();
         }
         else
         {
-            filled = teamCountryIds.Select(FormatSelectedCountry).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+            teamEntries = new List<GroupTeam>();
+            foreach (var idText in teamCountryIds)
+            {
+                if (!int.TryParse(idText, out var id)) continue;
+                var country = countries.FirstOrDefault(c => c.Id == id);
+                if (country == null) continue;
+
+                string sport = CountryService.ResolveSport(tournament!);
+                teamEntries.Add(new GroupTeam
+                {
+                    TeamName  = CountryService.Format(country, sport, tournament!.Year),
+                    CountryId = id
+                });
+            }
         }
 
-        if (filled.Count < 2) { groupError = "Pick (or type) at least 2 teams."; return; }
-        if (filled.Count != filled.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+        if (teamEntries.Count < 2) { groupError = "Pick (or type) at least 2 teams."; return; }
+        if (teamEntries.Select(t => t.TeamName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != teamEntries.Count)
         {
             groupError = "Teams must be unique within the group."; return;
         }
@@ -942,11 +951,11 @@
             Name         = groupName.Trim(),
             Event        = groupEvent.Trim(),
             TournamentId = tournament!.Id,
-            Teams        = filled.Select(t => new GroupTeam { TeamName = t.Trim() }).ToList()
+            Teams        = teamEntries
         };
 
         await GameService.AddGroupWithGamesAsync(group, gamesPerPair);
-        int gameCount = filled.Count * (filled.Count - 1) / 2 * Math.Max(1, gamesPerPair);
+        int gameCount = teamEntries.Count * (teamEntries.Count - 1) / 2 * Math.Max(1, gamesPerPair);
         groupMessage = $"Group \"{group.Name}\" created with {gameCount} games!";
         groupName = "";
         teamCount = 4;

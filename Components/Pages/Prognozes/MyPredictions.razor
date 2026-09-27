@@ -85,7 +85,7 @@
                             ? $"{pred.PredictedHomeScore}:{pred.PredictedAwayScore}{(pred.PredictedIsOvertime ? " OT" : "")}"
                             : "";
 
-                        <div class="tt-card pred-card-v2">
+                        <div class="tt-card pred-card-v2" @key="game.Id">
 
                             @* ── Row 1: date · saved pred · stage ────────── *@
                             <div class="pcv2-row1">
@@ -273,7 +273,7 @@
                                     <th class="team-name-col"></th>
                                     @foreach (var s in sorted)
                                     {
-                                        <th class="text-center team-col" title="@s.Team">@s.Team</th>
+                                        <th @key="s.Team" class="text-center team-col" title="@s.Team">@s.Team</th>
                                     }
                                     <th class="text-center stat-col">Pts</th>
                                     <th class="text-center stat-col">±</th>
@@ -285,18 +285,18 @@
                                 {
                                     var row = sorted[i];
                                     var place = i + 1;
-                                    <tr class="table-dark">
+                                    <tr @key="row.Team" class="table-dark">
                                         <td class="team-name-col"><strong>@row.Team</strong></td>
                                         @foreach (var col in sorted)
                                         {
                                             @if (row.Team == col.Team)
                                             {
-                                                <td class="black-cell"></td>
+                                                <td @key="col.Team" class="black-cell"></td>
                                             }
                                             else
                                             {
                                                 var pairGames2 = FindGames(gamesInGroup, row.Team, col.Team);
-                                                <td class="text-center score-cell">
+                                                <td @key="col.Team" class="text-center score-cell">
                                                     @foreach (var g2 in pairGames2)
                                                     {
                                                         var pred2 = predictions.FirstOrDefault(p => p.GameId == g2.Id);
@@ -304,7 +304,7 @@
                                                         {
                                                             int myG = g2.HomeTeam == row.Team ? pred2.PredictedHomeScore : pred2.PredictedAwayScore;
                                                             int oppG = g2.HomeTeam == row.Team ? pred2.PredictedAwayScore : pred2.PredictedHomeScore;
-                                                            <div>@myG:@oppG</div>
+                                                            <div @key="g2.Id">@myG:@oppG</div>
                                                         }
                                                     }
                                                 </td>

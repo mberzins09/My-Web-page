@@ -1,0 +1,41 @@
+@using MartinsWeb.Models
+
+<div class="d-flex align-items-center gap-2 mb-1">
+    <input class="form-control form-control-sm" placeholder="🔍 @Label..." value="@Search" @oninput="OnSearchInput" />
+    <span class="text-muted text-nowrap" style="font-size:.75rem">@Selected.Count selected</span>
+</div>
+<div class="border rounded p-1" style="max-height:@(MaxHeight)px; overflow-y:auto">
+    @foreach (var c in Countries.Where(c => string.IsNullOrWhiteSpace(Search) || c.Name.Contains(Search, StringComparison.OrdinalIgnoreCase)))
+    {
+        <div class="form-check" @key="c.Id">
+            <input class="form-check-input" type="checkbox" id="@(IdPrefix + c.Id)"
+                   checked="@Selected.Contains(c.Id)"
+                   @onchange="e => Toggle(c.Id, (bool)e.Value!)" />
+            <label class="form-check-label" for="@(IdPrefix + c.Id)" style="font-size:.88rem">@c.FlagEmoji @c.Name</label>
+        </div>
+    }
+    @if (!Countries.Any(c => string.IsNullOrWhiteSpace(Search) || c.Name.Contains(Search, StringComparison.OrdinalIgnoreCase)))
+    {
+        <div class="text-muted small p-1">No match.</div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<Country> Countries { get; set; } = new();
+    [Parameter] public HashSet<int> Selected { get; set; } = new();
+    [Parameter] public EventCallback<HashSet<int>> SelectedChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "Search";
+    [Parameter] public string IdPrefix { get; set; } = "cc";
+    [Parameter] public int MaxHeight { get; set; } = 220;
+
+    string Search = "";
+
+    void OnSearchInput(ChangeEventArgs e) => Search = e.Value?.ToString() ?? "";
+
+    async Task Toggle(int id, bool isChecked)
+    {
+        if (isChecked) Selected.Add(id);
+        else           Selected.Remove(id);
+        await SelectedChanged.InvokeAsync(Selected);
+    }
+}

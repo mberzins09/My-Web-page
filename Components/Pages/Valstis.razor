@@ -59,10 +59,14 @@
     }
     else
     {
+        <div class="d-flex align-items-center gap-2 mb-2" style="max-width:320px">
+            <input class="form-control form-control-sm" placeholder="🔍 Meklēt..." @bind="countrySearch" @bind:event="oninput" />
+            <span class="text-muted text-nowrap" style="font-size:.8rem">@visibleCountries.Count / @countries.Count</span>
+        </div>
         <div class="list-group">
-            @foreach (var c in countries)
+            @foreach (var c in visibleCountries)
             {
-                <div class="list-group-item">
+                <div class="list-group-item" @key="c.Id">
                     <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
                         <div>
                             <span style="font-size:1.3rem">@c.FlagEmoji</span>
@@ -136,6 +140,10 @@
 @code {
     List<Country> countries = new();
     bool loading = true;
+    string countrySearch = "";
+
+    List<Country> visibleCountries =>
+        countries.Where(c => string.IsNullOrWhiteSpace(countrySearch) || c.Name.Contains(countrySearch, StringComparison.OrdinalIgnoreCase)).ToList();
 
     bool creating = false;
     bool saving = false;

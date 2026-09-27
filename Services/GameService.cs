@@ -27,24 +27,62 @@ namespace MartinsWeb.Services
             if (tournament == null) return result;
 
             var countries = await _db.Countries.Include(c => c.Rankings).ToListAsync();
+            var byId   = countries.ToDictionary(c => c.Id);
             var byName = new Dictionary<string, Country>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in countries)
                 byName.TryAdd(c.Name.Trim(), c);   // first one wins if two countries somehow share a name
 
-            string sport = CountryService.SportFor(tournament.PointsCalculationType);
+            string sport = CountryService.ResolveSport(tournament);
             var unmatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // A team's stored text can already be "🇱🇻 Latvia" or "🇱🇻 Latvia(12)" - e.g. every game a
+            // group creates gets its text from the dropdown at creation time, flag and (rank) included.
+            // Recovering the plain name means stripping a leading flag that matches one of our own
+            // countries, then a trailing "(12)" rank, before trying the exact-name lookup.
+            var flagPrefixes = countries.Where(c => !string.IsNullOrEmpty(c.FlagEmoji))
+                                         .Select(c => c.FlagEmoji).Distinct().OrderByDescending(f => f.Length).ToList();
+            string StripFormatting(string text)
+            {
+                string s = text.Trim();
+                var flag = flagPrefixes.FirstOrDefault(f => s.StartsWith(f, StringComparison.Ordinal));
+                if (flag != null) s = s[flag.Length..].Trim();
+
+                int paren = s.LastIndexOf('(');
+                if (paren > 0 && s.EndsWith(')'))
+                    s = s[..paren].Trim();
+
+                return s;
+            }
 
             bool TryMatchSide(Game g, bool isHome)
             {
                 string? existingIds = isHome ? g.HomeCountryIds : g.AwayCountryIds;
-                if (!string.IsNullOrEmpty(existingIds)) return false;   // already linked - leave it alone
 
-                string name = (isHome ? g.HomeTeam : g.AwayTeam)?.Trim() ?? "";
-                if (name.Length == 0) return false;
-
-                if (!byName.TryGetValue(name, out var country))
+                // Already linked to one country - just refresh its displayed rank in case a ranking
+                // was added or changed since this text was last written (this is what makes a newly
+                // entered ranking actually show up on an old game without re-picking the team).
+                if (!string.IsNullOrEmpty(existingIds))
                 {
-                    unmatched.Add(name);
+                    var ids = PlayoffService.ParseIds(existingIds);
+                    if (ids.Count != 1 || !byId.TryGetValue(ids[0], out var linked)) return false;
+
+                    string refreshed = CountryService.Format(linked, sport, tournament.Year);
+                    string current = isHome ? g.HomeTeam : g.AwayTeam;
+                    if (refreshed == current) return false;
+
+                    if (isHome) g.HomeTeam = refreshed; else g.AwayTeam = refreshed;
+                    return true;
+                }
+
+                string rawName = (isHome ? g.HomeTeam : g.AwayTeam)?.Trim() ?? "";
+                if (rawName.Length == 0) return false;
+
+                // Try the text as-is first (a genuinely plain, never-formatted name), then with any
+                // flag/rank formatting stripped (a group-created game whose text already has both).
+                if (!byName.TryGetValue(rawName, out var country) &&
+                    !byName.TryGetValue(StripFormatting(rawName), out country))
+                {
+                    unmatched.Add(rawName);
                     return false;
                 }
 
@@ -69,12 +107,21 @@ namespace MartinsWeb.Services
                 .Include(gr => gr.Teams)
                 .SelectMany(gr => gr.Teams)
                 .ToListAsync();
+
             foreach (var gt in groupTeams)
             {
-                string name = gt.TeamName.Trim();
-                if (byName.TryGetValue(name, out var country))
+                // A row created via the dropdown already knows its country - just refresh the rank.
+                Country? country = gt.CountryId.HasValue && byId.TryGetValue(gt.CountryId.Value, out var linked)
+                    ? linked
+                    : byName.TryGetValue(StripFormatting(gt.TeamName), out var found) ? found : null;
+
+                if (country == null) continue;
+
+                string refreshed = CountryService.Format(country, sport, tournament.Year);
+                if (refreshed != gt.TeamName || gt.CountryId != country.Id)
                 {
-                    gt.TeamName = CountryService.Format(country, sport, tournament.Year);
+                    gt.TeamName  = refreshed;
+                    gt.CountryId = country.Id;
                     result.GroupTeamsMatched++;
                 }
             }
@@ -109,7 +156,7 @@ namespace MartinsWeb.Services
         /// <summary>
         /// Creates a new tournament. Returns false if the slug is already taken.
         /// </summary>
-        public async Task<bool> CreateTournamentAsync(string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null)
+        public async Task<bool> CreateTournamentAsync(string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null, string? sportType = null)
         {
             if (await _db.Tournaments.AnyAsync(t => t.Slug == slug))
                 return false;
@@ -122,7 +169,8 @@ namespace MartinsWeb.Services
                 IsActive = isActive,
                 PointsCalculationType = pointsCalculationType,
                 Year = year ?? DateTime.Today.Year,
-                ParticipatingCountryIds = participatingCountryIds
+                ParticipatingCountryIds = participatingCountryIds,
+                SportType = sportType
             });
             await _db.SaveChangesAsync();
             return true;
@@ -132,7 +180,7 @@ namespace MartinsWeb.Services
         /// Updates an existing tournament's fields.
         /// Returns false if the new slug is already taken by a different tournament.
         /// </summary>
-        public async Task<bool> UpdateTournamentAsync(int id, string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null)
+        public async Task<bool> UpdateTournamentAsync(int id, string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null, string? sportType = null)
         {
             if (await _db.Tournaments.AnyAsync(t => t.Slug == slug && t.Id != id))
                 return false;
@@ -147,6 +195,7 @@ namespace MartinsWeb.Services
             t.PointsCalculationType = pointsCalculationType;
             if (year.HasValue) t.Year = year.Value;
             t.ParticipatingCountryIds = participatingCountryIds;
+            t.SportType = sportType;
             await _db.SaveChangesAsync();
             return true;
         }
@@ -247,7 +296,7 @@ namespace MartinsWeb.Services
             _db.TournamentGroups.Add(group);
             await _db.SaveChangesAsync(); // get group.Id
 
-            var teams       = group.Teams.Select(t => t.TeamName).ToList();
+            var teams       = group.Teams.ToList();   // keep the GroupTeam objects, not just names, so CountryId carries through
             var placeholder = DateTime.UtcNow.Date;
             gamesPerPair     = Math.Max(1, gamesPerPair);
 
@@ -256,14 +305,18 @@ namespace MartinsWeb.Services
             for (int k = 0; k < gamesPerPair; k++)
             {
                 bool swap = k % 2 == 1;   // alternate home/away across repeated meetings
+                var home = swap ? teams[j] : teams[i];
+                var away = swap ? teams[i] : teams[j];
                 _db.Games.Add(new Game
                 {
-                    HomeTeam     = swap ? teams[j] : teams[i],
-                    AwayTeam     = swap ? teams[i] : teams[j],
-                    Stage        = group.Name,
-                    GameDate     = placeholder,
-                    GroupId      = group.Id,
-                    TournamentId = group.TournamentId
+                    HomeTeam       = home.TeamName,
+                    AwayTeam       = away.TeamName,
+                    HomeCountryIds = home.CountryId?.ToString(),
+                    AwayCountryIds = away.CountryId?.ToString(),
+                    Stage          = group.Name,
+                    GameDate       = placeholder,
+                    GroupId        = group.Id,
+                    TournamentId   = group.TournamentId
                 });
             }
             await _db.SaveChangesAsync();
