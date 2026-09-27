@@ -130,6 +130,20 @@ namespace MartinsWeb.Services
             await _db.SaveChangesAsync();
         }
 
+        /// <summary>
+        /// Deletes a team and its players (SeptemberPlayers rows, which hold points and can be
+        /// shared with other teams, are left alone). Use when a team's name changed at the API and
+        /// a refetch created a duplicate entry alongside the old one.
+        /// </summary>
+        public async Task DeleteTeamAsync(int teamId)
+        {
+            var team = await _db.TeamEntries.FindAsync(teamId);
+            if (team == null) return;
+
+            _db.TeamEntries.Remove(team);   // TeamPlayerEntries cascade-delete with it
+            await _db.SaveChangesAsync();
+        }
+
         // ── Private helpers ───────────────────────────────────────────────────
 
         private async Task<(List<RankingPlayer>, List<ApiParticipant>)> FetchFromApiAsync()

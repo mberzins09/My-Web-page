@@ -47,6 +47,29 @@ else
                     <span class="pcv2-expand-btn ms-2">
                         @(expandedTeams.Contains(team.Id) ? "▲" : "▼")
                     </span>
+
+                    <AuthorizeView Roles="Admin">
+                        <div @onclick:stopPropagation="true">
+                            @if (confirmDeleteId == team.Id)
+                            {
+                                <button class="btn btn-sm btn-danger ms-2 py-0" disabled="@deleting"
+                                        @onclick="() => DeleteTeam(team.Id)">
+                                    @(deleting ? "..." : "Tiešām dzēst?")
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary ms-1 py-0" disabled="@deleting"
+                                        @onclick="() => confirmDeleteId = null">
+                                    ✕
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-danger ms-2 py-0"
+                                        title="Dzēst komandu" @onclick="() => confirmDeleteId = team.Id">
+                                    🗑
+                                </button>
+                            }
+                        </div>
+                    </AuthorizeView>
                 </div>
 
                 @* Expanded: player list *@
@@ -118,6 +141,9 @@ else
     decimal editValue;
     PlayerViewModel? editingPlayer;
 
+    int? confirmDeleteId;
+    bool deleting;
+
     protected override async Task OnInitializedAsync()
     {
         try
@@ -159,6 +185,26 @@ else
         teams = await TeamService.GetTeamsAsync();
         editingPlayerId = null;
         editingPlayer = null;
+    }
+
+    async Task DeleteTeam(int teamId)
+    {
+        deleting = true;
+        try
+        {
+            await TeamService.DeleteTeamAsync(teamId);
+            teams = await TeamService.GetTeamsAsync();
+            expandedTeams.Remove(teamId);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            deleting = false;
+            confirmDeleteId = null;
+        }
     }
 
     async Task RefetchTeams()
