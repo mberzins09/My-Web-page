@@ -3,6 +3,7 @@ using System;
 using MartinsWeb.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace MartinsWeb.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260927080128_TournamentYear")]
+    partial class TournamentYear
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
@@ -156,9 +159,6 @@ namespace MartinsWeb.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AwayCountryIds")
-                        .HasColumnType("TEXT");
-
                     b.Property<int?>("AwayFullTimeScore")
                         .HasColumnType("INTEGER");
 
@@ -178,9 +178,6 @@ namespace MartinsWeb.Migrations
 
                     b.Property<int?>("GroupId")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("HomeCountryIds")
-                        .HasColumnType("TEXT");
 
                     b.Property<int?>("HomeFullTimeScore")
                         .HasColumnType("INTEGER");
@@ -443,9 +440,6 @@ namespace MartinsWeb.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ParticipatingCountryIds")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PointsCalculationType")

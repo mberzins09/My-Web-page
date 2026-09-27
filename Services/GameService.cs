@@ -4,9 +4,88 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MartinsWeb.Services
 {
-    public class GameService(AppDbContext db)
+    public class GameService(AppDbContext db, PlayoffService playoffs)
     {
         private readonly AppDbContext _db = db;
+        private readonly PlayoffService _playoffs = playoffs;
+
+        /// <summary>
+        /// Matches an existing tournament's plain-text team names against the countries table by
+        /// exact name (case-insensitive) and, where they match, rewrites the team to
+        /// "🇱🇻 Latvia(12)" and links it to that country - the same result picking it from the
+        /// dropdown would give. Meant for old tournaments that predate the countries feature, so
+        /// their archive pages look consistent with newer ones. Only touches sides that aren't
+        /// already linked to a country (HomeCountryIds/AwayCountryIds empty), so running it twice
+        /// is harmless. Games with 2+ candidates (a playoff placeholder slot) are skipped, since
+        /// their text is flags-only and not a single team name to match against.
+        /// </summary>
+        public async Task<TeamMatchResult> MatchTeamsToCountriesAsync(int tournamentId)
+        {
+            var result = new TeamMatchResult();
+
+            var tournament = await _db.Tournaments.FindAsync(tournamentId);
+            if (tournament == null) return result;
+
+            var countries = await _db.Countries.Include(c => c.Rankings).ToListAsync();
+            var byName = new Dictionary<string, Country>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in countries)
+                byName.TryAdd(c.Name.Trim(), c);   // first one wins if two countries somehow share a name
+
+            string sport = CountryService.SportFor(tournament.PointsCalculationType);
+            var unmatched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            bool TryMatchSide(Game g, bool isHome)
+            {
+                string? existingIds = isHome ? g.HomeCountryIds : g.AwayCountryIds;
+                if (!string.IsNullOrEmpty(existingIds)) return false;   // already linked - leave it alone
+
+                string name = (isHome ? g.HomeTeam : g.AwayTeam)?.Trim() ?? "";
+                if (name.Length == 0) return false;
+
+                if (!byName.TryGetValue(name, out var country))
+                {
+                    unmatched.Add(name);
+                    return false;
+                }
+
+                string text = CountryService.Format(country, sport, tournament.Year);
+                if (isHome) { g.HomeTeam = text; g.HomeCountryIds = country.Id.ToString(); }
+                else        { g.AwayTeam = text; g.AwayCountryIds = country.Id.ToString(); }
+                return true;
+            }
+
+            var games = await _db.Games.Where(g => g.TournamentId == tournamentId).ToListAsync();
+            foreach (var g in games)
+            {
+                bool homeMatched = TryMatchSide(g, isHome: true);
+                bool awayMatched = TryMatchSide(g, isHome: false);
+                if (homeMatched) result.SidesMatched++;
+                if (awayMatched) result.SidesMatched++;
+                if (homeMatched || awayMatched) result.GamesUpdated++;
+            }
+
+            var groupTeams = await _db.TournamentGroups
+                .Where(gr => gr.TournamentId == tournamentId)
+                .Include(gr => gr.Teams)
+                .SelectMany(gr => gr.Teams)
+                .ToListAsync();
+            foreach (var gt in groupTeams)
+            {
+                string name = gt.TeamName.Trim();
+                if (byName.TryGetValue(name, out var country))
+                {
+                    gt.TeamName = CountryService.Format(country, sport, tournament.Year);
+                    result.GroupTeamsMatched++;
+                }
+            }
+
+            result.UnmatchedNames = unmatched.OrderBy(n => n).ToList();
+
+            if (result.GamesUpdated > 0 || result.GroupTeamsMatched > 0)
+                await _db.SaveChangesAsync();
+
+            return result;
+        }
 
         // ── Tournaments ────────────────────────────────────────────────────────
 
@@ -30,7 +109,7 @@ namespace MartinsWeb.Services
         /// <summary>
         /// Creates a new tournament. Returns false if the slug is already taken.
         /// </summary>
-        public async Task<bool> CreateTournamentAsync(string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football")
+        public async Task<bool> CreateTournamentAsync(string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null)
         {
             if (await _db.Tournaments.AnyAsync(t => t.Slug == slug))
                 return false;
@@ -41,7 +120,9 @@ namespace MartinsWeb.Services
                 Name = name,
                 Icon = icon,
                 IsActive = isActive,
-                PointsCalculationType = pointsCalculationType
+                PointsCalculationType = pointsCalculationType,
+                Year = year ?? DateTime.Today.Year,
+                ParticipatingCountryIds = participatingCountryIds
             });
             await _db.SaveChangesAsync();
             return true;
@@ -51,7 +132,7 @@ namespace MartinsWeb.Services
         /// Updates an existing tournament's fields.
         /// Returns false if the new slug is already taken by a different tournament.
         /// </summary>
-        public async Task<bool> UpdateTournamentAsync(int id, string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football")
+        public async Task<bool> UpdateTournamentAsync(int id, string slug, string name, string icon, bool isActive, string pointsCalculationType = "Football", int? year = null, string? participatingCountryIds = null)
         {
             if (await _db.Tournaments.AnyAsync(t => t.Slug == slug && t.Id != id))
                 return false;
@@ -64,6 +145,8 @@ namespace MartinsWeb.Services
             t.Icon = icon;
             t.IsActive = isActive;
             t.PointsCalculationType = pointsCalculationType;
+            if (year.HasValue) t.Year = year.Value;
+            t.ParticipatingCountryIds = participatingCountryIds;
             await _db.SaveChangesAsync();
             return true;
         }
@@ -98,6 +181,11 @@ namespace MartinsWeb.Services
              match.IsOvertime = isOvertime;
 
             await _db.SaveChangesAsync();
+
+            // A decisive score can settle a later round's placeholder slot (e.g. a semi-final feeding
+            // the final) - re-check the whole bracket every time a score is saved.
+            if (match.TournamentId.HasValue)
+                await _playoffs.ResolveAsync(match.TournamentId.Value);
         }
 
         public async Task DeleteMatchAsync(int gameId)
@@ -113,11 +201,16 @@ namespace MartinsWeb.Services
             var existing = await _db.Games.FindAsync(game.Id);
             if (existing != null)
             {
-                existing.HomeTeam = game.HomeTeam;
-                existing.AwayTeam = game.AwayTeam;
-                existing.GameDate = DateTime.SpecifyKind(game.GameDate, DateTimeKind.Local).ToUniversalTime();
-                existing.Stage    = game.Stage;
+                existing.HomeTeam       = game.HomeTeam;
+                existing.AwayTeam       = game.AwayTeam;
+                existing.HomeCountryIds = game.HomeCountryIds;
+                existing.AwayCountryIds = game.AwayCountryIds;
+                existing.GameDate       = DateTime.SpecifyKind(game.GameDate, DateTimeKind.Local).ToUniversalTime();
+                existing.Stage          = game.Stage;
                 await _db.SaveChangesAsync();
+
+                if (existing.TournamentId.HasValue)
+                    await _playoffs.ResolveAsync(existing.TournamentId.Value);
             }
         }
 
@@ -143,7 +236,12 @@ namespace MartinsWeb.Services
         /// Saves a new group (with teams) and auto-generates round-robin games.
         /// TournamentId must be set on the group before calling.
         /// </summary>
-        public async Task AddGroupWithGamesAsync(TournamentGroup group)
+        /// <param name="gamesPerPair">
+        /// How many times each pair of teams plays - 1 for a normal round-robin, 2 for a double
+        /// round-robin (home and away), etc. When more than 1, home/away alternates per meeting so
+        /// no team hosts every game against the same opponent.
+        /// </param>
+        public async Task AddGroupWithGamesAsync(TournamentGroup group, int gamesPerPair = 1)
         {
             group.CreatedAt = DateTime.UtcNow;
             _db.TournamentGroups.Add(group);
@@ -151,14 +249,17 @@ namespace MartinsWeb.Services
 
             var teams       = group.Teams.Select(t => t.TeamName).ToList();
             var placeholder = DateTime.UtcNow.Date;
+            gamesPerPair     = Math.Max(1, gamesPerPair);
 
             for (int i = 0; i < teams.Count; i++)
             for (int j = i + 1; j < teams.Count; j++)
+            for (int k = 0; k < gamesPerPair; k++)
             {
+                bool swap = k % 2 == 1;   // alternate home/away across repeated meetings
                 _db.Games.Add(new Game
                 {
-                    HomeTeam     = teams[i],
-                    AwayTeam     = teams[j],
+                    HomeTeam     = swap ? teams[j] : teams[i],
+                    AwayTeam     = swap ? teams[i] : teams[j],
                     Stage        = group.Name,
                     GameDate     = placeholder,
                     GroupId      = group.Id,
@@ -575,6 +676,11 @@ namespace MartinsWeb.Services
             }
 
             await _db.SaveChangesAsync();
+
+            // A completed tournament no longer accepts predictions / shows as "current".
+            tournament.IsActive = false;
+            await _db.SaveChangesAsync();
+
             return results;
         }
 

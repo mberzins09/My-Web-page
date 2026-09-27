@@ -295,14 +295,17 @@
                                             }
                                             else
                                             {
-                                                var g2 = FindGame(gamesInGroup, row.Team, col.Team);
-                                                var pred2 = g2 != null ? predictions.FirstOrDefault(p => p.GameId == g2.Id) : null;
+                                                var pairGames2 = FindGames(gamesInGroup, row.Team, col.Team);
                                                 <td class="text-center score-cell">
-                                                    @if (pred2 != null && g2 != null)
+                                                    @foreach (var g2 in pairGames2)
                                                     {
-                                                        int myG = g2.HomeTeam == row.Team ? pred2.PredictedHomeScore : pred2.PredictedAwayScore;
-                                                        int oppG = g2.HomeTeam == row.Team ? pred2.PredictedAwayScore : pred2.PredictedHomeScore;
-                                                        <span>@myG:@oppG</span>
+                                                        var pred2 = predictions.FirstOrDefault(p => p.GameId == g2.Id);
+                                                        @if (pred2 != null)
+                                                        {
+                                                            int myG = g2.HomeTeam == row.Team ? pred2.PredictedHomeScore : pred2.PredictedAwayScore;
+                                                            int oppG = g2.HomeTeam == row.Team ? pred2.PredictedAwayScore : pred2.PredictedHomeScore;
+                                                            <div>@myG:@oppG</div>
+                                                        }
                                                     }
                                                 </td>
                                             }
@@ -464,9 +467,11 @@
         gamesInGroup.SelectMany(g => new[] { g.HomeTeam, g.AwayTeam })
              .Where(t => !string.IsNullOrEmpty(t)).Distinct().ToList();
 
-    Game? FindGame(List<Game> gamesInGroup, string a, string b) =>
-        gamesInGroup.FirstOrDefault(g =>
-            (g.HomeTeam == a && g.AwayTeam == b) || (g.HomeTeam == b && g.AwayTeam == a));
+    /// <summary>Every game between this pair, in case they played more than once (double round-robin).</summary>
+    List<Game> FindGames(List<Game> gamesInGroup, string a, string b) =>
+        gamesInGroup.Where(g =>
+            (g.HomeTeam == a && g.AwayTeam == b) || (g.HomeTeam == b && g.AwayTeam == a))
+            .ToList();
 
     string GoalDiffClass(int diff) => diff switch { > 0 => "text-success", < 0 => "text-danger", _ => "" };
 

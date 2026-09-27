@@ -74,13 +74,16 @@ else
                                 }
                                 else
                                 {
-                                    var game = FindGame(gamesInGroup, row.Team, col.Team);
+                                    var pairGames = FindGames(gamesInGroup, row.Team, col.Team);
                                     <td class="text-center score-cell">
-                                        @if (game?.HomeScore != null)
+                                        @foreach (var game in pairGames)
                                         {
-                                            int myG  = game.HomeTeam == row.Team ? game.HomeScore.Value : game.AwayScore!.Value;
-                                            int oppG = game.HomeTeam == row.Team ? game.AwayScore!.Value : game.HomeScore.Value;
-                                            <span>@myG:@oppG</span>
+                                            @if (game.HomeScore != null)
+                                            {
+                                                int myG  = game.HomeTeam == row.Team ? game.HomeScore.Value : game.AwayScore!.Value;
+                                                int oppG = game.HomeTeam == row.Team ? game.AwayScore!.Value : game.HomeScore.Value;
+                                                <div>@myG:@oppG</div>
+                                            }
                                         }
                                     </td>
                                 }
@@ -130,10 +133,12 @@ else
              .Distinct()
              .ToList();
 
-    Game? FindGame(List<Game> games, string a, string b) =>
-        games.FirstOrDefault(g =>
+    /// <summary>Every game between this pair, in case they played more than once (double round-robin).</summary>
+    List<Game> FindGames(List<Game> games, string a, string b) =>
+        games.Where(g =>
             (g.HomeTeam == a && g.AwayTeam == b) ||
-            (g.HomeTeam == b && g.AwayTeam == a));
+            (g.HomeTeam == b && g.AwayTeam == a))
+            .ToList();
 
     string GoalDiffClass(int diff) => diff switch { > 0 => "text-success", < 0 => "text-danger", _ => "" };
 

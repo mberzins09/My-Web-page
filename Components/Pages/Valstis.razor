@@ -1,0 +1,229 @@
+@page "/valstis"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject CountryService CountrySvc
+
+<PageTitle>Valstis</PageTitle>
+
+<div class="container py-4" style="max-width:900px">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">🌍 Valstis</h3>
+        @if (!creating)
+        {
+            <button class="btn btn-primary btn-sm" @onclick="StartCreate">➕ Jauna valsts</button>
+        }
+    </div>
+
+    @if (creating)
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5>@(editingId == null ? "Jauna valsts" : "Rediģēt valsti")</h5>
+                <div class="row g-2 align-items-end">
+                    <div class="col-8">
+                        <label class="form-label">Nosaukums</label>
+                        <input class="form-control" @bind="formName" @bind:event="oninput" />
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">Karogs <span class="text-muted">(emoji vai kods, piem. LV)</span></label>
+                        <div class="input-group">
+                            <input class="form-control" placeholder="🇱🇻 vai LV" @bind="formFlag" @bind:event="oninput" />
+                            <span class="input-group-text" style="font-size:1.2rem">@CountryService.NormalizeFlag(formFlag)</span>
+                        </div>
+                    </div>
+                </div>
+                @if (formError != null)
+                {
+                    <div class="alert alert-danger mt-3">@formError</div>
+                }
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-primary" disabled="@saving" @onclick="SaveAsync">
+                        @(saving ? "Saglabā..." : "Saglabāt")
+                    </button>
+                    <button class="btn btn-outline-secondary" disabled="@saving" @onclick="() => creating = false">Atcelt</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (loading)
+    {
+        <p class="text-muted">Ielādē...</p>
+    }
+    else if (countries.Count == 0)
+    {
+        <p class="text-muted">Vēl nav neviena valsts.</p>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var c in countries)
+            {
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                        <div>
+                            <span style="font-size:1.3rem">@c.FlagEmoji</span>
+                            <strong class="ms-1">@c.Name</strong>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleRankings(c.Id)">
+                                📊 Reitingi (@c.Rankings.Count)
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => StartEdit(c)">✎ Rediģēt</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsync(c.Id)">Dzēst</button>
+                        </div>
+                    </div>
+
+                    @if (expandedId == c.Id)
+                    {
+                        <div class="mt-3 p-2 rounded" style="background:rgba(255,255,255,.04)">
+                            @if (c.Rankings.Count > 0)
+                            {
+                                <table class="table table-sm mb-3">
+                                    <thead><tr><th>Sports</th><th>Gads</th><th>Vieta</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach (var r in c.Rankings.OrderByDescending(r => r.Year).ThenBy(r => r.Sport))
+                                        {
+                                            <tr>
+                                                <td>@r.Sport</td>
+                                                <td>@r.Year</td>
+                                                <td>@r.Rank</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-danger py-0"
+                                                            @onclick="() => DeleteRankingAsync(c.Id, r.Id)">✕</button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            }
+
+                            <div class="row g-2 align-items-end">
+                                <div class="col-4">
+                                    <label class="form-label mb-1 small">Sports</label>
+                                    <select class="form-select form-select-sm" @bind="rankSport">
+                                        @foreach (var s in CountryService.Sports)
+                                        {
+                                            <option value="@s">@s</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-3">
+                                    <label class="form-label mb-1 small">Gads</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="rankYear" />
+                                </div>
+                                <div class="col-3">
+                                    <label class="form-label mb-1 small">Vieta</label>
+                                    <input type="number" class="form-control form-control-sm" @bind="rankValue" />
+                                </div>
+                                <div class="col-2">
+                                    <button class="btn btn-sm btn-primary w-100" @onclick="() => AddRankingAsync(c.Id)">
+                                        Saglabāt
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    List<Country> countries = new();
+    bool loading = true;
+
+    bool creating = false;
+    bool saving = false;
+    int? editingId;
+    string formName = "";
+    string formFlag = "";
+    string? formError;
+
+    int? expandedId;
+    string rankSport = CountryService.Sports[0];
+    int rankYear = DateTime.Today.Year;
+    int rankValue = 1;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        countries = await CountrySvc.GetAllAsync();
+        loading = false;
+    }
+
+    void StartCreate()
+    {
+        editingId = null;
+        formName = "";
+        formFlag = "";
+        formError = null;
+        creating = true;
+    }
+
+    void StartEdit(Country c)
+    {
+        editingId = c.Id;
+        formName = c.Name;
+        formFlag = c.FlagEmoji;
+        formError = null;
+        creating = true;
+    }
+
+    async Task SaveAsync()
+    {
+        formError = null;
+        saving = true;
+        try
+        {
+            if (editingId is int id)
+                await CountrySvc.UpdateAsync(id, formName, formFlag);
+            else
+                await CountrySvc.CreateAsync(formName, formFlag);
+
+            creating = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            formError = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    async Task DeleteAsync(int id)
+    {
+        await CountrySvc.DeleteAsync(id);
+        if (expandedId == id) expandedId = null;
+        await LoadAsync();
+    }
+
+    void ToggleRankings(int id)
+    {
+        expandedId = expandedId == id ? null : id;
+        rankSport = CountryService.Sports[0];
+        rankYear = DateTime.Today.Year;
+        rankValue = 1;
+    }
+
+    async Task AddRankingAsync(int countryId)
+    {
+        await CountrySvc.SetRankingAsync(countryId, rankSport, rankYear, rankValue);
+        await LoadAsync();
+    }
+
+    async Task DeleteRankingAsync(int countryId, int rankingId)
+    {
+        await CountrySvc.DeleteRankingAsync(rankingId);
+        await LoadAsync();
+    }
+}

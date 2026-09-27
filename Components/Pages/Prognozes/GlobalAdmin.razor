@@ -8,6 +8,7 @@
 @inject UserContextService UserContext
 @inject WinsService Wins
 @inject UserProfileService Profile
+@inject CountryService CountrySvc
 @inject IJSRuntime JS
 
 <AuthorizeView Roles="Admin">
@@ -29,6 +30,22 @@
             <div class="mb-2">
                 <label class="form-label mb-1">Icon <span class="text-muted" style="font-size:.8rem">(single emoji)</span></label>
                 <input class="form-control" @bind="tIcon" placeholder="⚽" style="max-width:120px" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label mb-1">Year <span class="text-muted" style="font-size:.8rem">(used to look up country rankings for that year)</span></label>
+                <input class="form-control" type="number" @bind="tYear" style="max-width:120px" />
+            </div>
+            <div class="mb-2">
+                <label class="form-label mb-1">
+                    Participating countries
+                    <span class="text-muted" style="font-size:.8rem">(leave empty to allow every country)</span>
+                </label>
+                <select class="form-select" multiple size="8" @bind="tCountryIds" style="max-width:320px">
+                    @foreach (var c in allCountries)
+                    {
+                        <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                    }
+                </select>
             </div>
 
             @* ── Points Calculation Type ──────────────────────────────────────── *@
@@ -114,7 +131,7 @@
                             <td>@t.Icon</td>
                             <td>@t.Name</td>
                             <td><code>@t.Slug</code></td>
-                            <td><span class="badge bg-secondary">@t.PointsCalculationType</span></td>
+                            <td><span class="badge bg-secondary">@t.PointsCalculationType</span> <span class="text-muted">@t.Year</span></td>
                             <td>@(t.IsActive ? "✅" : "❌")</td>
                             <td>
                                 <button class="btn btn-sm btn-outline-primary me-1"
@@ -226,6 +243,7 @@
 @code {
     List<Tournament>? tournaments;
     List<User>? users;
+    List<Country> allCountries = new();
     int currentUserId;
     bool migrationDone = false;
     int editWins;
@@ -253,8 +271,10 @@
     string tSlug     = "";
     string tName     = "";
     string tIcon     = "";
-    string tCalcType = "Football";
-    bool   tIsActive = true;
+    string   tCalcType   = "Football";
+    int      tYear       = DateTime.Today.Year;
+    bool     tIsActive   = true;
+    string[] tCountryIds = [];
     string? tMessage;
     string? tError;
 
@@ -273,8 +293,9 @@
 
     async Task LoadData()
     {
-        tournaments = await GameService.GetAllTournamentsAsync();
-        users       = await AuthService.GetAllUsersAsync();
+        tournaments  = await GameService.GetAllTournamentsAsync();
+        users        = await AuthService.GetAllUsersAsync();
+        allCountries = await CountrySvc.GetAllAsync();
     }
 
     // ── Tournament handlers ────────────────────────────────────────────────────
@@ -284,19 +305,27 @@
         tSlug     = t.Slug;
         tName     = t.Name;
         tIcon     = t.Icon;
-        tCalcType = t.PointsCalculationType;
-        tIsActive = t.IsActive;
-        tError    = null;
+        tCalcType   = t.PointsCalculationType;
+        tYear       = t.Year;
+        tIsActive   = t.IsActive;
+        tCountryIds = string.IsNullOrWhiteSpace(t.ParticipatingCountryIds)
+            ? []
+            : t.ParticipatingCountryIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        tError      = null;
     }
 
     void CancelTournamentEdit()
     {
         editingTournament = null;
         tSlug = tName = tIcon = "";
-        tCalcType = "Football";
-        tIsActive = true;
+        tCalcType   = "Football";
+        tYear       = DateTime.Today.Year;
+        tIsActive   = true;
+        tCountryIds = [];
         tError = null;
     }
+
+    static string? JoinIds(string[] ids) => ids.Length == 0 ? null : string.Join(",", ids);
 
     async Task CreateTournament()
     {
@@ -306,13 +335,15 @@
         if (string.IsNullOrWhiteSpace(tIcon)) { tError = "Icon is required."; return; }
 
         var slug = tSlug.Trim().ToLowerInvariant().Replace(" ", "-");
-        var ok = await GameService.CreateTournamentAsync(slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType);
+        var ok = await GameService.CreateTournamentAsync(slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType, tYear, JoinIds(tCountryIds));
         if (!ok) { tError = $"Slug \"{slug}\" is already taken."; return; }
 
         tMessage = $"Tournament \"{tName}\" created!";
         tSlug = tName = tIcon = "";
-        tCalcType = "Football";
-        tIsActive = true;
+        tCalcType   = "Football";
+        tYear       = DateTime.Today.Year;
+        tIsActive   = true;
+        tCountryIds = [];
         await LoadData();
         await Task.Delay(2500);
         tMessage = null;
@@ -326,7 +357,7 @@
         if (string.IsNullOrWhiteSpace(tIcon)) { tError = "Icon is required."; return; }
 
         var slug = tSlug.Trim().ToLowerInvariant().Replace(" ", "-");
-        await GameService.UpdateTournamentAsync(editingTournament!.Id, slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType);
+        await GameService.UpdateTournamentAsync(editingTournament!.Id, slug, tName.Trim(), tIcon.Trim(), tIsActive, tCalcType, tYear, JoinIds(tCountryIds));
         tMessage = "Tournament updated!";
         CancelTournamentEdit();
         await LoadData();

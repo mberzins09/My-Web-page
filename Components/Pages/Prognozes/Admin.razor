@@ -8,6 +8,8 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserContextService UserContext
 @inject WinsService Wins
+@inject CountryService CountrySvc
+@inject PlayoffService PlayoffSvc
 
 <AuthorizeView Roles="Admin">
     <Authorized>
@@ -19,6 +21,26 @@
         {
             <h3>⚙️ Admin — @tournament.Icon @tournament.Name</h3>
 
+            @* ── Match teams to countries (old-tournament archive cleanup) ────────── *@
+            <div class="border rounded p-2 mb-3 d-flex flex-wrap align-items-center gap-2" style="background:rgba(13,110,253,.06)">
+                <button class="btn btn-outline-primary btn-sm" disabled="@matchingTeams" @onclick="MatchTeamsToCountries">
+                    @(matchingTeams ? "..." : "🌍 Match teams to countries")
+                </button>
+                <span class="text-muted" style="font-size:.82rem">
+                    Rewrites plain-text team names that exactly match a country in /valstis to "🇱🇻 Latvia(12)" - safe to click more than once.
+                </span>
+            </div>
+            @if (matchResult != null)
+            {
+                <div class="alert alert-info py-2 mb-3" style="font-size:.85rem">
+                    <div>Matched <strong>@matchResult.SidesMatched</strong> team slot(s) across <strong>@matchResult.GamesUpdated</strong> game(s), and <strong>@matchResult.GroupTeamsMatched</strong> group team row(s).</div>
+                    @if (matchResult.UnmatchedNames.Count > 0)
+                    {
+                        <div class="mt-1">No matching country for: @string.Join(", ", matchResult.UnmatchedNames)</div>
+                    }
+                </div>
+            }
+
             @* ── Two-column form grid ──────────────────────────────────────────── *@
             <hr />
             <div class="row g-4">
@@ -26,8 +48,25 @@
                 @* ── Left: Add Single Game ──────────────────────────────────────── *@
                 <div class="col-12 col-xl-6">
                     <h4>Add Single Game</h4>
-                    <input class="form-control mb-2" @bind="gameForm.HomeTeam" placeholder="Home Team" />
-                    <input class="form-control mb-2" @bind="gameForm.AwayTeam" placeholder="Away Team" />
+                    <label class="form-label mb-1 small">Home team <span class="text-muted">(pick 2+ for a not-yet-decided playoff slot, e.g. winner of two earlier games)</span></label>
+                    <select class="form-select mb-2" multiple size="8" @bind="singleHomeCountryIds">
+                        @foreach (var c in countries)
+                        {
+                            <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                        }
+                    </select>
+                    <label class="form-label mb-1 small">Away team</label>
+                    <select class="form-select mb-2" multiple size="8" @bind="singleAwayCountryIds">
+                        @foreach (var c in countries)
+                        {
+                            <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                        }
+                    </select>
+                    <details class="mb-2">
+                        <summary class="text-muted" style="font-size:.82rem; cursor:pointer">Or type a team name manually</summary>
+                        <input class="form-control mt-1 mb-1" @bind="gameForm.HomeTeam" placeholder="Home Team (overrides selection above)" />
+                        <input class="form-control" @bind="gameForm.AwayTeam" placeholder="Away Team (overrides selection above)" />
+                    </details>
                     <input class="form-control mb-2" type="datetime-local" @bind="gameForm.GameDate" />
                     <input class="form-control mb-2" @bind="gameForm.Stage"
                            placeholder="Stage (e.g. Group A, Round of 16, Semi-Final, Final)" />
@@ -35,6 +74,10 @@
                     @if (gameMessage != null)
                     {
                         <p class="text-success mt-2">@gameMessage</p>
+                    }
+                    @if (gameError != null)
+                    {
+                        <p class="text-danger mt-2">@gameError</p>
                     }
                 </div>
 
@@ -49,24 +92,34 @@
                     <input class="form-control mb-2" @bind="groupEvent"
                            placeholder="Event label (e.g. @tournament.Name)" />
 
-                    <div class="d-flex align-items-center gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                         <label class="mb-0 text-nowrap">Teams in group:</label>
                         <input type="number" class="form-control" style="width:90px"
                                min="2" max="20" value="@teamCount"
                                @onchange="OnTeamCountChanged" />
+                        <label class="mb-0 text-nowrap">Games per pair:</label>
+                        <input type="number" class="form-control" style="width:70px"
+                               min="1" max="4" @bind="gamesPerPair" />
                         <span class="text-muted" style="font-size:.85rem">
-                            → @(teamCount * (teamCount - 1) / 2) games
+                            → @(teamCount * (teamCount - 1) / 2 * gamesPerPair) games
                         </span>
                     </div>
 
-                    @for (int i = 0; i < teamNames.Count; i++)
+                    @for (int i = 0; i < teamCountryIds.Count; i++)
                     {
                         var idx = i;
-                        <input class="form-control mb-1"
-                               value="@teamNames[idx]"
-                               @onchange="e => teamNames[idx] = e.Value?.ToString() ?? String.Empty"
-                               placeholder="@($"Team {idx + 1}")" />
+                        <select class="form-select mb-1" @bind="teamCountryIds[idx]">
+                            <option value="">@($"-- Team {idx + 1} --")</option>
+                            @foreach (var c in countries)
+                            {
+                                <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                            }
+                        </select>
                     }
+                    <details class="mb-1">
+                        <summary class="text-muted" style="font-size:.82rem; cursor:pointer">Or type team names manually (comma separated, overrides dropdowns above)</summary>
+                        <input class="form-control mt-1" @bind="teamNamesManual" placeholder="Team 1, Team 2, Team 3, ..." />
+                    </details>
 
                     <button class="btn btn-success mt-2" @onclick="AddGroup">
                         Create Group &amp; Generate Games
@@ -79,7 +132,21 @@
 
             @* ── Games Table ───────────────────────────────────────────────────── *@
             <hr />
-            <h4>Games</h4>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <h4 class="mb-0">Games</h4>
+                <button class="btn btn-sm btn-outline-secondary" disabled="@resolvingPlayoffs" @onclick="ResolvePlayoffsManually">
+                    @(resolvingPlayoffs ? "..." : "🔄 Resolve playoffs")
+                </button>
+            </div>
+            @if (playoffLog.Count > 0)
+            {
+                <div class="mb-2" style="font-size:.82rem">
+                    @foreach (var line in playoffLog)
+                    {
+                        <div class="text-success">@line</div>
+                    }
+                </div>
+            }
             @if (games == null || !games.Any())
             {
                 <p>No games yet.</p>
@@ -152,13 +219,40 @@
                                         <input class="form-control form-control-sm" style="min-width:110px"
                                                @bind="editStage" placeholder="Stage" />
                                     </td>
-                                    <td>
-                                        <input class="form-control form-control-sm" style="min-width:90px"
-                                               @bind="editHomeTeam" placeholder="Home" />
-                                    </td>
-                                    <td>
-                                        <input class="form-control form-control-sm" style="min-width:90px"
-                                               @bind="editAwayTeam" placeholder="Away" />
+                                    <td colspan="2" style="min-width:220px">
+                                        <div class="btn-group btn-group-sm mb-1" role="group">
+                                            <button type="button" class="btn @(editUseSelection ? "btn-primary" : "btn-outline-primary")"
+                                                    @onclick="() => editUseSelection = true">Select</button>
+                                            <button type="button" class="btn @(!editUseSelection ? "btn-primary" : "btn-outline-primary")"
+                                                    @onclick="() => editUseSelection = false">Text</button>
+                                        </div>
+                                        @if (editUseSelection)
+                                        {
+                                            <div class="d-flex gap-1">
+                                                <select class="form-select form-select-sm" multiple size="6" @bind="editHomeCountryIds">
+                                                    @foreach (var c in countries)
+                                                    {
+                                                        <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                                                    }
+                                                </select>
+                                                <select class="form-select form-select-sm" multiple size="6" @bind="editAwayCountryIds">
+                                                    @foreach (var c in countries)
+                                                    {
+                                                        <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                            <div class="text-muted" style="font-size:.72rem">2+ picks = playoff placeholder slot</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="d-flex gap-1">
+                                                <input class="form-control form-control-sm" style="min-width:90px"
+                                                       @bind="editHomeTeam" placeholder="Home" />
+                                                <input class="form-control form-control-sm" style="min-width:90px"
+                                                       @bind="editAwayTeam" placeholder="Away" />
+                                            </div>
+                                        }
                                     </td>
                                     <td>
                                         @if (game.HomeScore != null)
@@ -248,13 +342,36 @@
                                             <p class="mb-2 text-muted" style="font-size:.85rem">
                                                 Edit team names below. Games will be updated automatically to match.
                                             </p>
-                                            @for (int i = 0; i < editTeamNames.Count; i++)
+                                            <div class="btn-group btn-group-sm mb-2" role="group">
+                                                <button type="button" class="btn @(groupEditUseSelection ? "btn-primary" : "btn-outline-primary")"
+                                                        @onclick="() => groupEditUseSelection = true">Select</button>
+                                                <button type="button" class="btn @(!groupEditUseSelection ? "btn-primary" : "btn-outline-primary")"
+                                                        @onclick="() => groupEditUseSelection = false">Text</button>
+                                            </div>
+                                            @if (groupEditUseSelection)
                                             {
-                                                var idx = i;
-                                                <input class="form-control form-control-sm mb-1"
-                                                       value="@editTeamNames[idx]"
-                                                       @onchange="e => editTeamNames[idx] = e.Value?.ToString() ?? string.Empty"
-                                                       placeholder="@($"Team {idx + 1}")" />
+                                                @for (int i = 0; i < editTeamCountryIds.Count; i++)
+                                                {
+                                                    var idx = i;
+                                                    <select class="form-select form-select-sm mb-1" @bind="editTeamCountryIds[idx]">
+                                                        <option value="">@($"-- Team {idx + 1} --")</option>
+                                                        @foreach (var c in countries)
+                                                        {
+                                                            <option value="@c.Id">@c.FlagEmoji @c.Name</option>
+                                                        }
+                                                    </select>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                @for (int i = 0; i < editTeamNames.Count; i++)
+                                                {
+                                                    var idx = i;
+                                                    <input class="form-control form-control-sm mb-1"
+                                                           value="@editTeamNames[idx]"
+                                                           @onchange="e => editTeamNames[idx] = e.Value?.ToString() ?? string.Empty"
+                                                           placeholder="@($"Team {idx + 1}")" />
+                                                }
                                             }
                                             @if (groupEditError != null)
                                             {
@@ -456,12 +573,18 @@
     // Add-single-game form (top-left panel)
     Game    gameForm    = new() { GameDate = DateTime.Now };
     string? gameMessage;
+    string? gameError;
+    List<Country> countries = new();
+    string[] singleHomeCountryIds = [];
+    string[] singleAwayCountryIds = [];
 
     // Group / batch form (top-right panel)
     string       groupName  = "";
     string       groupEvent = "";
     int          teamCount  = 4;
-    List<string> teamNames  = new() { "", "", "", "" };
+    List<string> teamCountryIds = new() { "", "", "", "" };
+    string       teamNamesManual = "";
+    int          gamesPerPair = 1;
     string?      groupMessage;
     string?      groupError;
 
@@ -472,10 +595,15 @@
     string  editStage     = "";
     int     editDay, editMonth, editYear, editHour, editMinute;
     string? editDateError;
+    bool     editUseSelection = true;
+    string[] editHomeCountryIds = [];
+    string[] editAwayCountryIds = [];
 
     // Group team editing
     int?         editingGroupId;
     List<string> editTeamNames  = new();
+    bool         groupEditUseSelection = true;
+    List<string> editTeamCountryIds = new();
     string?      groupEditError;
 
     // ── User Competition Groups state ──────────────────────────────────────────
@@ -522,6 +650,15 @@
         currentUserId  = (await UserContext.GetUserIdAsync()) ?? 0;
         if (tournament != null)
             groupEvent = tournament.Name;
+        countries = await CountrySvc.GetAllAsync();
+        if (tournament != null && !string.IsNullOrWhiteSpace(tournament.ParticipatingCountryIds))
+        {
+            var allowed = tournament.ParticipatingCountryIds
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(int.Parse)
+                .ToHashSet();
+            countries = countries.Where(c => allowed.Contains(c.Id)).ToList();
+        }
         await LoadData();
     }
 
@@ -542,16 +679,120 @@
         }
     }
 
+    bool resolvingPlayoffs = false;
+    List<string> playoffLog = new();
+
+    bool matchingTeams = false;
+    TeamMatchResult? matchResult;
+
+    async Task MatchTeamsToCountries()
+    {
+        matchingTeams = true;
+        matchResult = null;
+        StateHasChanged();
+        try
+        {
+            matchResult = await GameService.MatchTeamsToCountriesAsync(tournament!.Id);
+            await LoadData();
+        }
+        finally { matchingTeams = false; }
+    }
+
+    async Task ResolvePlayoffsManually()
+    {
+        resolvingPlayoffs = true;
+        playoffLog = new();
+        try
+        {
+            playoffLog = await PlayoffSvc.ResolveAsync(tournament!.Id);
+            if (playoffLog.Count == 0) playoffLog.Add("Nothing to resolve yet.");
+            await LoadData();
+        }
+        finally { resolvingPlayoffs = false; }
+    }
+
     // ── Add single game ────────────────────────────────────────────────────────
     async Task AddGame()
     {
         gameForm.TournamentId = tournament!.Id;
+
+        if (string.IsNullOrWhiteSpace(gameForm.HomeTeam))
+        {
+            var (text, ids) = ResolveSlot(singleHomeCountryIds);
+            gameForm.HomeTeam       = text;
+            gameForm.HomeCountryIds = ids;
+        }
+        if (string.IsNullOrWhiteSpace(gameForm.AwayTeam))
+        {
+            var (text, ids) = ResolveSlot(singleAwayCountryIds);
+            gameForm.AwayTeam       = text;
+            gameForm.AwayCountryIds = ids;
+        }
+
+        if (string.IsNullOrWhiteSpace(gameForm.HomeTeam) || string.IsNullOrWhiteSpace(gameForm.AwayTeam))
+        {
+            gameMessage = null;
+            groupError  = null;
+            gameError   = "Pick at least one team per side (or type them manually).";
+            return;
+        }
+
         await GameService.AddMatchAsync(gameForm);
+        await PlayoffSvc.ResolveAsync(tournament!.Id);
         gameForm    = new() { GameDate = DateTime.Now };
+        singleHomeCountryIds = singleAwayCountryIds = [];
+        gameError   = null;
         gameMessage = "Game added!";
         await LoadData();
         await Task.Delay(2000);
         gameMessage = null;
+    }
+
+    /// <summary>
+    /// "🇱🇻 Latvia(12)" for one selected country in the tournament's sport/year - used for group teams,
+    /// which are always a single fixed team (never a placeholder slot).
+    /// </summary>
+    string FormatSelectedCountry(string countryIdText)
+    {
+        if (!int.TryParse(countryIdText, out var id)) return "";
+        var country = countries.FirstOrDefault(c => c.Id == id);
+        if (country == null) return "";
+
+        string sport = CountryService.SportFor(tournament!.PointsCalculationType);
+        return CountryService.Format(country, sport, tournament.Year);
+    }
+
+    /// <summary>
+    /// Turns the selected country ids into a team-slot's display text and stored id list.
+    /// One country  → "🇱🇻 Latvia(12)", ranking looked up once at creation time (in the tournament's
+    ///                 sport/year) so it stays frozen even if the ranking is edited later.
+    /// 2+ countries → "🇱🇻/🇸🇪" (flags only) - a placeholder slot PlayoffService resolves once an
+    ///                 earlier round decides which of them advances.
+    /// Nothing picked → ("", null).
+    /// </summary>
+    (string Text, string? Ids) ResolveSlot(string[] countryIdTexts)
+    {
+        var ids = countryIdTexts
+            .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        if (ids.Count == 0) return ("", null);
+
+        if (ids.Count == 1)
+        {
+            var country = countries.FirstOrDefault(c => c.Id == ids[0]);
+            if (country == null) return ("", null);
+            string sport = CountryService.SportFor(tournament!.PointsCalculationType);
+            return (CountryService.Format(country, sport, tournament.Year), ids[0].ToString());
+        }
+
+        var flags = ids
+            .Select(id => countries.FirstOrDefault(c => c.Id == id)?.FlagEmoji)
+            .Where(f => !string.IsNullOrEmpty(f));
+        return (string.Join("/", flags), string.Join(",", ids));
     }
 
     // ── Inline game edit ───────────────────────────────────────────────────────
@@ -562,6 +803,12 @@
         editAwayTeam  = game.AwayTeam;
         editStage     = game.Stage;
         editDateError = null;
+
+        // Pre-select the dropdown if this game already tracks countries; otherwise default to the
+        // plain-text tab so an old/manually-typed game doesn't show an empty, misleading selection.
+        editHomeCountryIds = PlayoffService.ParseIds(game.HomeCountryIds).Select(id => id.ToString()).ToArray();
+        editAwayCountryIds = PlayoffService.ParseIds(game.AwayCountryIds).Select(id => id.ToString()).ToArray();
+        editUseSelection   = editHomeCountryIds.Length > 0 || editAwayCountryIds.Length > 0;
 
         var local = game.GameDate.Kind == DateTimeKind.Utc
             ? game.GameDate.ToLocalTime()
@@ -591,13 +838,36 @@
             return;
         }
 
+        string homeTeam, awayTeam;
+        string? homeIds, awayIds;
+
+        if (editUseSelection)
+        {
+            (homeTeam, homeIds) = ResolveSlot(editHomeCountryIds);
+            (awayTeam, awayIds) = ResolveSlot(editAwayCountryIds);
+            if (string.IsNullOrWhiteSpace(homeTeam) || string.IsNullOrWhiteSpace(awayTeam))
+            {
+                editDateError = "Pick at least one team per side.";
+                return;
+            }
+        }
+        else
+        {
+            homeTeam = editHomeTeam.Trim();
+            awayTeam = editAwayTeam.Trim();
+            homeIds  = null;   // manually-typed text is no longer tracked to a country
+            awayIds  = null;
+        }
+
         var updated = new Game
         {
-            Id       = editingGameId!.Value,
-            HomeTeam = editHomeTeam.Trim(),
-            AwayTeam = editAwayTeam.Trim(),
-            Stage    = editStage.Trim(),
-            GameDate = localDt
+            Id              = editingGameId!.Value,
+            HomeTeam        = homeTeam,
+            AwayTeam        = awayTeam,
+            HomeCountryIds  = homeIds,
+            AwayCountryIds  = awayIds,
+            Stage           = editStage.Trim(),
+            GameDate        = localDt
         };
 
         await GameService.UpdateGameAsync(updated);
@@ -641,8 +911,8 @@
         if (int.TryParse(e.Value?.ToString(), out var count))
         {
             teamCount = Math.Clamp(count, 2, 20);
-            while (teamNames.Count < teamCount) teamNames.Add("");
-            while (teamNames.Count > teamCount) teamNames.RemoveAt(teamNames.Count - 1);
+            while (teamCountryIds.Count < teamCount) teamCountryIds.Add("");
+            while (teamCountryIds.Count > teamCount) teamCountryIds.RemoveAt(teamCountryIds.Count - 1);
         }
     }
 
@@ -650,11 +920,21 @@
     {
         groupError = null;
         if (string.IsNullOrWhiteSpace(groupName)) { groupError = "Group name is required."; return; }
-        var filled = teamNames.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
-        if (filled.Count < 2) { groupError = "Enter at least 2 team names."; return; }
+
+        List<string> filled;
+        if (!string.IsNullOrWhiteSpace(teamNamesManual))
+        {
+            filled = teamNamesManual.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+        }
+        else
+        {
+            filled = teamCountryIds.Select(FormatSelectedCountry).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+        }
+
+        if (filled.Count < 2) { groupError = "Pick (or type) at least 2 teams."; return; }
         if (filled.Count != filled.Distinct(StringComparer.OrdinalIgnoreCase).Count())
         {
-            groupError = "Team names must be unique within the group."; return;
+            groupError = "Teams must be unique within the group."; return;
         }
 
         var group = new TournamentGroup
@@ -665,11 +945,14 @@
             Teams        = filled.Select(t => new GroupTeam { TeamName = t.Trim() }).ToList()
         };
 
-        await GameService.AddGroupWithGamesAsync(group);
-        groupMessage = $"Group \"{group.Name}\" created with {filled.Count * (filled.Count - 1) / 2} games!";
+        await GameService.AddGroupWithGamesAsync(group, gamesPerPair);
+        int gameCount = filled.Count * (filled.Count - 1) / 2 * Math.Max(1, gamesPerPair);
+        groupMessage = $"Group \"{group.Name}\" created with {gameCount} games!";
         groupName = "";
         teamCount = 4;
-        teamNames = new() { "", "", "", "" };
+        gamesPerPair = 1;
+        teamCountryIds = new() { "", "", "", "" };
+        teamNamesManual = "";
         await LoadData();
         await Task.Delay(3000);
         groupMessage = null;
@@ -687,6 +970,9 @@
     {
         editingGroupId = group.Id;
         editTeamNames  = group.Teams.Select(t => t.TeamName).ToList();
+        editTeamCountryIds = group.Teams.Select(_ => "").ToList();   // group teams aren't tracked to a country id, so selection starts blank
+        while (editTeamCountryIds.Count < 2) editTeamCountryIds.Add("");
+        groupEditUseSelection = false;   // start on the tab that already shows real data - the selects start blank
         groupEditError = null;
     }
 
@@ -694,20 +980,25 @@
     {
         editingGroupId = null;
         editTeamNames  = new();
+        editTeamCountryIds = new();
         groupEditError = null;
     }
 
     async Task SaveGroupTeams()
     {
         groupEditError = null;
-        var filled = editTeamNames.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-        if (filled.Count < 2) { groupEditError = "Need at least 2 teams."; return; }
+
+        var filled = groupEditUseSelection
+            ? editTeamCountryIds.Select(FormatSelectedCountry).Where(t => !string.IsNullOrWhiteSpace(t)).ToList()
+            : editTeamNames.Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+
+        if (filled.Count < 2) { groupEditError = "Pick (or type) at least 2 teams."; return; }
         if (filled.Count != filled.Distinct(StringComparer.OrdinalIgnoreCase).Count())
         {
-            groupEditError = "Team names must be unique."; return;
+            groupEditError = "Teams must be unique."; return;
         }
 
-        await GameService.UpdateGroupTeamsAsync(editingGroupId!.Value, editTeamNames);
+        await GameService.UpdateGroupTeamsAsync(editingGroupId!.Value, filled);
         CancelGroupEdit();
         await LoadData();
     }

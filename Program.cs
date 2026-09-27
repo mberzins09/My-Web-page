@@ -22,6 +22,8 @@ builder.Services.AddScoped<LgtfAdminService>();
 builder.Services.AddScoped<ForeignPointsService>();
 builder.Services.AddScoped<SuggestionService>();
 builder.Services.AddScoped<SurveyService>();
+builder.Services.AddScoped<CountryService>();
+builder.Services.AddScoped<PlayoffService>();
 builder.Services.AddScoped<ApiSportsService>();
 builder.Services.AddScoped<WinsService>();
 builder.Services.AddScoped<UserProfileService>();

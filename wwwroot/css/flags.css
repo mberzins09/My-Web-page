@@ -1,0 +1,9 @@
+/* Twemoji (see wwwroot/js/flags.js) turns flag characters into <img class="flag-emoji"> tags so
+   they render as pictures on Windows, which doesn't draw flag emoji natively. Without this rule
+   the images come through at their native SVG size, which is why they looked huge. */
+img.flag-emoji {
+    height: 1em;
+    width: 1em;
+    margin: 0 .05em 0 .1em;
+    vertical-align: -0.1em;
+}
