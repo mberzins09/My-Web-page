@@ -151,6 +151,23 @@
             </Authorized>
         </AuthorizeView>
 
+        <div class="nav-item px-3">
+            <button class="nav-link btn btn-link text-start w-100 p-0"
+                    @onclick="ToggleGames">
+                🎮 Games
+                <span>@(gamesOpen ? "▲" : "▼")</span>
+            </button>
+        </div>
+
+        @if (gamesOpen)
+        {
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="/tetris">
+                    🧱 Tetris
+                </NavLink>
+            </div>
+        }
+
         <div class="nav-item px-3 mt-2">
             <NavLink class="nav-link" href="/ieteikumi">
                 <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Ieteikumi
@@ -162,6 +179,7 @@
 @code {
     bool prognozesOpen = false;
     bool latviaTTOpen  = false;
+    bool gamesOpen     = false;
     bool _restoreNavAfterRender = false;
     List<MartinsWeb.Models.Tournament>? activeTournaments;
     List<MartinsWeb.Models.Tournament>? archivedTournaments;
@@ -172,6 +190,7 @@
     {
         prognozesOpen = Nav.Uri.Contains("/prognozes/");
         latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt");
+        gamesOpen     = Nav.Uri.Contains("/tetris");
         var all = await GameService.GetAllTournamentsAsync();
         activeTournaments = all.Where(t => t.IsActive).ToList();
         archivedTournaments = all.Where(t => !t.IsActive).ToList();
@@ -208,6 +227,12 @@
     void ToggleLatviaTT()
     {
         latviaTTOpen = !latviaTTOpen;
+        _restoreNavAfterRender = true;
+    }
+
+    void ToggleGames()
+    {
+        gamesOpen = !gamesOpen;
         _restoreNavAfterRender = true;
     }
 
