@@ -166,6 +166,17 @@
                     }
                 </div>
 
+                <div class="d-flex flex-wrap gap-2 mb-3" style="max-width:520px">
+                    <input class="form-control form-control-sm" style="max-width:220px"
+                           placeholder="🔍 Home team contains..." @bind="homeFilter" @bind:event="oninput" />
+                    <input class="form-control form-control-sm" style="max-width:220px"
+                           placeholder="🔍 Away team contains..." @bind="awayFilter" @bind:event="oninput" />
+                    @if (!string.IsNullOrWhiteSpace(homeFilter) || !string.IsNullOrWhiteSpace(awayFilter))
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick='() => { homeFilter = ""; awayFilter = ""; }'>✕ Clear</button>
+                    }
+                </div>
+
                 <div style="overflow-x:auto">
                 <table class="table table-sm" style="min-width:700px">
                     <thead>
@@ -317,7 +328,7 @@
                             <tr class="@(editingGroupId == group.Id ? "table-warning" : "table-dark")">
                                 <td>@group.Name</td>
                                 <td>@group.Event</td>
-                                <td style="font-size:.85rem">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
+                                <td style="font-size:.85rem; max-width:260px; white-space:normal; word-break:break-word">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
                                 <td>@(group.Teams.Count * (group.Teams.Count - 1) / 2)</td>
                                 <td class="d-flex gap-1">
                                     <button class="btn btn-sm btn-outline-primary"
@@ -336,6 +347,21 @@
                                 <tr class="table-warning">
                                     <td colspan="5">
                                         <div style="max-width:460px; padding:.5rem 0">
+                                            <div class="mb-3">
+                                                <label class="form-label mb-1 small">Group name</label>
+                                                <div class="d-flex gap-2">
+                                                    <input class="form-control form-control-sm" @bind="editGroupName" @bind:event="oninput" />
+                                                    <button class="btn btn-sm btn-outline-primary text-nowrap" @onclick="RenameGroup">Rename</button>
+                                                </div>
+                                                @if (renameError != null)
+                                                {
+                                                    <p class="text-danger mt-1 mb-0" style="font-size:.8rem">@renameError</p>
+                                                }
+                                                @if (renameMessage != null)
+                                                {
+                                                    <p class="text-success mt-1 mb-0" style="font-size:.8rem">@renameMessage</p>
+                                                }
+                                            </div>
                                             <p class="mb-2 text-muted" style="font-size:.85rem">
                                                 Edit team names below. Games will be updated automatically to match.
                                             </p>
@@ -412,7 +438,7 @@
                         {
                             <tr class="table-dark">
                                 <td>@group.Name</td>
-                                <td style="font-size:.85rem">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
+                                <td style="font-size:.85rem; max-width:260px; white-space:normal; word-break:break-word">@string.Join(", ", group.Teams.Select(t => t.TeamName))</td>
                                 <td>
                                     @if (group.Tournament != null)
                                     {
@@ -562,6 +588,8 @@
     List<TournamentGroup>? allGroups;
     int currentUserId;
     string? selectedStage;
+    string  homeFilter = "";
+    string  awayFilter = "";
 
     // Assignment section
     Dictionary<int, string?> assignSelections = new();
@@ -602,6 +630,9 @@
     bool         groupEditUseSelection = true;
     List<string> editTeamCountryIds = new();
     string?      groupEditError;
+    string       editGroupName  = "";
+    string?      renameError;
+    string?      renameMessage;
 
     // ── User Competition Groups state ──────────────────────────────────────────
     List<UserGroup>? userGroups;
@@ -624,6 +655,8 @@
 
     List<Game> filteredGames => games?
         .Where(g => selectedStage == null || g.Stage == selectedStage)
+        .Where(g => string.IsNullOrWhiteSpace(homeFilter) || g.HomeTeam.Contains(homeFilter, StringComparison.OrdinalIgnoreCase))
+        .Where(g => string.IsNullOrWhiteSpace(awayFilter) || g.AwayTeam.Contains(awayFilter, StringComparison.OrdinalIgnoreCase))
         .OrderBy(g => StageOrder(g.Stage))
         .ThenBy(g => g.GameDate)
         .ToList() ?? new();
@@ -978,6 +1011,9 @@
     void StartEditGroup(TournamentGroup group)
     {
         editingGroupId = group.Id;
+        editGroupName  = group.Name;
+        renameError    = null;
+        renameMessage  = null;
         editTeamNames  = group.Teams.Select(t => t.TeamName).ToList();
         editTeamCountryIds = group.Teams.Select(_ => "").ToList();   // group teams aren't tracked to a country id, so selection starts blank
         while (editTeamCountryIds.Count < 2) editTeamCountryIds.Add("");
@@ -991,6 +1027,20 @@
         editTeamNames  = new();
         editTeamCountryIds = new();
         groupEditError = null;
+    }
+
+    async Task RenameGroup()
+    {
+        renameError = null;
+        renameMessage = null;
+
+        if (editingGroupId is not int id) return;
+        var newName = editGroupName.Trim();
+        if (newName.Length == 0) { renameError = "Name can't be empty."; return; }
+
+        await GameService.RenameGroupAsync(id, newName);
+        renameMessage = "Renamed.";
+        await LoadData();
     }
 
     async Task SaveGroupTeams()

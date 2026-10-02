@@ -322,6 +322,24 @@ namespace MartinsWeb.Services
             await _db.SaveChangesAsync();
         }
 
+        /// <summary>Renames a group and keeps every game it generated in sync (Game.Stage mirrors the group's Name).</summary>
+        public async Task RenameGroupAsync(int groupId, string newName)
+        {
+            newName = (newName ?? "").Trim();
+            if (newName.Length == 0) return;
+
+            var group = await _db.TournamentGroups
+                .Include(g => g.Games)
+                .FirstOrDefaultAsync(g => g.Id == groupId);
+            if (group == null || group.Name == newName) return;
+
+            group.Name = newName;
+            foreach (var g in group.Games)
+                g.Stage = newName;
+
+            await _db.SaveChangesAsync();
+        }
+
         public async Task UpdateGroupTeamsAsync(int groupId, List<string> newTeamNames)
         {
             var group = await _db.TournamentGroups
