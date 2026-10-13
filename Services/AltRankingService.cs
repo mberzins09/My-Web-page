@@ -42,11 +42,9 @@ namespace MartinsWeb.Services
 
         /// <summary>
         /// Full rebuild: wipes the saved state and replays every competition from the very start.
-        /// This is the only correct way to handle a competition that got inserted earlier in the
-        /// timeline than anything already processed (a historical backfill) - the engine is
-        /// sequential, so an out-of-order insert invalidates every rating computed after it.
-        /// For first-time setup, or as a manual "rebuild everything" button; RunIncrementalAsync
-        /// calls this automatically if it ever detects that situation, so you don't have to.
+        /// For first-time setup, or as a manual "rebuild everything" button. Running this a second
+        /// time always drops every alternative-ranking table and redoes everything from scratch -
+        /// that's by design, not a bug.
         /// </summary>
         public Task RunFullAsync(Action<string>? progress = null) => RunCoreAsync(reset: true, progress);
 
@@ -55,19 +53,23 @@ namespace MartinsWeb.Services
         /// last run and only processes competitions that haven't been counted yet, instead of
         /// replaying the whole history. Only the month(s) that actually received a new competition
         /// get their rankings2 snapshot touched - everything earlier is left exactly as it was.
-        /// Falls back to a full rebuild by itself if it finds a new competition dated earlier than
-        /// one already processed (see RunFullAsync).
+        ///
+        /// A competition dated earlier than ones already processed (a late-arriving historical
+        /// result - which happens routinely, since one organizer is reliably slow to enter results)
+        /// is treated like any other new competition and folded in incrementally, in whatever order
+        /// it was imported. This ranking doesn't need perfect chronological precision: an
+        /// out-of-order competition essentially never shares players with ones already counted, so
+        /// there's no automatic full-rebuild fallback here. Use RunFullAsync explicitly if a true
+        /// from-scratch recompute is ever wanted.
         /// </summary>
         public Task RunIncrementalAsync(Action<string>? progress = null) => RunCoreAsync(reset: false, progress);
 
         private async Task RunCoreAsync(bool reset, Action<string>? progress)
         {
-            // Blazor Server only actually pushes a queued UI update to the browser once this method
-            // truly yields control back to the circuit - a plain progress?.Invoke() alone can sit
-            // queued and invisible for a long time if the rest of the method keeps running without
-            // ever awaiting something that suspends. Task.Yield() forces that handoff after every
-            // line we log, so the admin sees progress live instead of everything appearing at once
-            // when the whole run finishes.
+            // Blazor Server only flushes a queued StateHasChanged render if the calling method
+            // actually yields control at some point; SQLite calls below can resolve near-
+            // synchronously, so without an explicit yield here the admin page's log can sit blank
+            // for a long time and then dump everything at once. Report() fixes that.
             async Task Report(string msg)
             {
                 progress?.Invoke(msg);
@@ -100,31 +102,6 @@ namespace MartinsWeb.Services
             await Report(totalNew == 0
                 ? "Nothing new to process."
                 : $"{totalNew} competition(s) to process ({(reset ? "full rebuild" : "incremental")})...");
-
-            // Safety net: this engine only works forward through time. If a "new" competition is
-            // actually dated before something we've already counted (a historical tournament
-            // imported after the fact), every rating computed since would be wrong order - the only
-            // correct fix is a full replay, so fall back to it automatically rather than save bad
-            // numbers silently.
-            if (!reset && processedIds.Count > 0)
-            {
-                DateTime? latestProcessed = byMonth
-                    .SelectMany(m => m.Comps)
-                    .Where(c => processedIds.Contains(c.Id))
-                    .Select(c => (DateTime?)c.StartDate)
-                    .Max();
-
-                bool outOfOrder = byMonth
-                    .SelectMany(m => m.Comps)
-                    .Any(c => !processedIds.Contains(c.Id) && latestProcessed.HasValue && c.StartDate < latestProcessed.Value);
-
-                if (outOfOrder)
-                {
-                    await Report("Alternative ranking: found a competition dated earlier than one already processed (historical backfill) - a full rebuild is needed to stay correct, doing that instead.");
-                    await RunCoreAsync(reset: true, progress);
-                    return;
-                }
-            }
 
             int monthsTouched = 0;
             int compsProcessed = 0;
@@ -201,46 +178,53 @@ namespace MartinsWeb.Services
             }
             if (month == null) return ([], 0, null);
 
-            // Everyone who shares this month/gender/active status, before search narrows anything -
-            // a player's Place is their rank in THIS group, never affected by what you typed in the
-            // search box. Search only picks which of these already-ranked rows get shown.
+            // Ranking conditions scope which rows get numbered at all (the month, active/inactive,
+            // and gender filters) - "Place" is computed from these alone, via ROW_NUMBER() below, so
+            // that a player's place is their true place within that ranking, not their position
+            // among whatever a text search happens to match. The search condition is applied
+            // afterwards, in an outer WHERE, so it narrows the rows shown without renumbering them.
             var rankingConditions = new List<string> { "r.month = $month" };
             if (!showInactive) rankingConditions.Add("r.is_active = 1");
             if (!string.IsNullOrWhiteSpace(gender) && gender != "all")
             {
-                if (gender == "foreigns")        rankingConditions.Add("p.Gender IS NULL");
-                else if (gender == "alllatvians") rankingConditions.Add("p.Gender IS NOT NULL");
-                else                               rankingConditions.Add("p.Gender = $gender");
+                if (gender == "foreigns")
+                    rankingConditions.Add("p.Gender IS NULL");
+                else if (gender == "alllatvians")
+                    rankingConditions.Add("p.Gender IS NOT NULL");
+                else
+                    rankingConditions.Add("p.Gender = $gender");
             }
             string rankingWhere = string.Join(" AND ", rankingConditions);
-            string searchWhere = !string.IsNullOrWhiteSpace(search) ? "WHERE (Name LIKE $search OR Surname LIKE $search)" : "";
 
-            var countCmd = con.CreateCommand();
-            countCmd.CommandText = $@"
+            var searchConditions = new List<string>();
+            if (!string.IsNullOrWhiteSpace(search))
+                searchConditions.Add("(ranked.Name LIKE $search OR ranked.Surname LIKE $search)");
+            string searchWhere = searchConditions.Count > 0 ? "WHERE " + string.Join(" AND ", searchConditions) : "";
+
+            string rankedCte = $@"
                 WITH ranked AS (
-                    SELECT COALESCE(p.Name,'') AS Name, COALESCE(p.Surname,'') AS Surname
+                    SELECT p.Id AS Id, COALESCE(p.Name,'') AS Name, COALESCE(p.Surname,'') AS Surname,
+                           p.Gender AS Gender, r.points AS Points, r.is_active AS IsActive,
+                           ROW_NUMBER() OVER (ORDER BY r.points DESC, p.Id) AS Place
                     FROM rankings2 r
                     JOIN PlayerDB p ON p.Id = r.player_id
                     WHERE {rankingWhere}
-                )
+                )";
+
+            var countCmd = con.CreateCommand();
+            countCmd.CommandText = $@"
+                {rankedCte}
                 SELECT COUNT(*) FROM ranked {searchWhere}";
             AddFilterParams(countCmd, month, gender, search);
             int total = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
             var cmd = con.CreateCommand();
             cmd.CommandText = $@"
-                WITH ranked AS (
-                    SELECT p.Id, COALESCE(p.Name,'') AS Name, COALESCE(p.Surname,'') AS Surname, p.Gender,
-                           r.points AS Points, r.is_active AS IsActive,
-                           ROW_NUMBER() OVER (ORDER BY r.points DESC, p.Id) AS Place
-                    FROM rankings2 r
-                    JOIN PlayerDB p ON p.Id = r.player_id
-                    WHERE {rankingWhere}
-                )
+                {rankedCte}
                 SELECT Id, Name, Surname, Gender, Points, IsActive, Place
                 FROM ranked
                 {searchWhere}
-                ORDER BY Place
+                ORDER BY Points DESC, Id
                 LIMIT $limit OFFSET $offset";
             AddFilterParams(cmd, month, gender, search);
             cmd.Parameters.AddWithValue("$limit", pageSize);
@@ -1041,8 +1025,8 @@ namespace MartinsWeb.Services
             var losses = p.LossVs.ToList();
             if (wins.Count == 0) return null;
 
-            var bigWins = wins.Where(x => rating[x.OpponentId].Points - baseRating >= 300).ToList();
-            var superWins = wins.Where(x => rating[x.OpponentId].Points - baseRating >= 600).ToList();
+            var bigWins = wins.Where(x => rating[x.OpponentId].Points - baseRating >= 400).ToList();
+            var superWins = wins.Where(x => rating[x.OpponentId].Points - baseRating >= 700).ToList();
             bool isSuperWin = superWins.Count > 1;
             var countedLosses = losses.Where(x => Math.Abs(rating[x.OpponentId].Points - baseRating) <= 200);
 
@@ -1053,7 +1037,7 @@ namespace MartinsWeb.Services
 
                 int avgRating = (int)all.Average(x => rating[x.OpponentId].Points);
                 if (avgRating < baseRating) return null;
-                if (avgRating - baseRating > 400) return baseRating + 350;
+                if (avgRating - baseRating > 400) return baseRating + 300;
                 return avgRating;
             }
 
@@ -1068,7 +1052,7 @@ namespace MartinsWeb.Services
             var wins = p.WinsVs.ToList();
             if (losses.Count == 0) return null;
 
-            var bigLosses = losses.Where(x => baseRating - rating[x.OpponentId].Points >= 400).ToList();
+            var bigLosses = losses.Where(x => baseRating - rating[x.OpponentId].Points >= 500).ToList();
             var countedWins = wins.Where(x => Math.Abs(rating[x.OpponentId].Points - baseRating) <= 200);
 
             if (bigLosses.Count >= 4)

@@ -39,10 +39,10 @@
                 @onclick='() => SetGender("male")'>♂ Male</button>
         <button class="btn btn-sm @(selectedGender == "female" ? "btn-primary" : "btn-outline-primary")"
                 @onclick='() => SetGender("female")'>♀ Female</button>
-        <button class="btn btn-sm @(selectedGender == "alllatvians" ? "btn-primary" : "btn-outline-primary")"
-                @onclick='() => SetGender("alllatvians")'>🇱🇻 All Latvians</button>
         <button class="btn btn-sm @(selectedGender == "foreigns" ? "btn-primary" : "btn-outline-primary")"
                 @onclick='() => SetGender("foreigns")'>♀♂ Foreigns</button>
+        <button class="btn btn-sm @(selectedGender == "alllatvians" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("alllatvians")'>🇱🇻 All Latvians</button>
     </div>
 
     <div class="form-check form-switch mb-0">
@@ -55,7 +55,6 @@
 <div class="mb-3" style="max-width:380px">
     <input class="form-control" placeholder="Search by name or surname…"
            value="@searchQuery" @oninput="OnSearch" />
-    <div class="text-muted" style="font-size:.75rem">Shows each player's real place in the ranking, not their order within the search results.</div>
 </div>
 
 @* ── Content ─────────────────────────────────────────────────────────────── *@
@@ -74,7 +73,7 @@ else if (!players.Any())
 else
 {
     <p class="text-muted mb-2" style="font-size:.82rem">
-        Showing: <strong>@MonthName(month) @month!.Split('-')[0]</strong> · @total player(s)
+        Current month: <strong>@month</strong> · @total player(s)
     </p>
 
     <div class="rank2-wrapper" style="max-width:560px">
@@ -103,15 +102,13 @@ else
 
     @if (string.IsNullOrWhiteSpace(searchQuery) && totalPages > 0)
     {
-        <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
+        <div class="d-flex flex-wrap gap-1 mt-3 align-items-center">
             <button class="btn btn-sm btn-outline-primary" @onclick="PrevPage" disabled="@(currentPage == 0)">← Prev</button>
-            <span class="small text-muted">Page @(currentPage + 1) / @totalPages</span>
+            <span class="small text-muted mx-2">Page @(currentPage + 1) / @totalPages</span>
             <button class="btn btn-sm btn-outline-primary" @onclick="NextPage" disabled="@(currentPage >= totalPages - 1)">Next →</button>
-
             <form class="d-flex align-items-center gap-1 ms-2" @onsubmit="GoToTypedPage">
-                <label class="small text-muted mb-0">Go to page:</label>
-                <input type="number" class="form-control form-control-sm" style="width:72px"
-                       min="1" max="@totalPages" @bind="typedPage" @bind:event="oninput" />
+                <span class="small text-muted">Go to:</span>
+                <input type="number" class="form-control form-control-sm" style="width:70px" min="1" max="@totalPages" @bind="typedPage" />
                 <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
             </form>
         </div>
@@ -120,6 +117,12 @@ else
 
 @code {
     const int PageSize = 100;
+
+    [SupplyParameterFromQuery(Name = "month")] public string? QsMonth { get; set; }
+    [SupplyParameterFromQuery(Name = "gender")] public string? QsGender { get; set; }
+    [SupplyParameterFromQuery(Name = "inactive")] public bool? QsInactive { get; set; }
+    [SupplyParameterFromQuery(Name = "search")] public string? QsSearch { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? QsPage { get; set; }
 
     bool loading = true;
     bool showInactive = false;
@@ -138,12 +141,6 @@ else
     int selectedYear;
     string selectedMonth = "";
 
-    [SupplyParameterFromQuery(Name = "month")]    public string? MonthParam    { get; set; }
-    [SupplyParameterFromQuery(Name = "gender")]   public string? GenderParam   { get; set; }
-    [SupplyParameterFromQuery(Name = "inactive")] public bool?   InactiveParam { get; set; }
-    [SupplyParameterFromQuery(Name = "search")]   public string? SearchParam   { get; set; }
-    [SupplyParameterFromQuery(Name = "page")]     public int?    PageParam     { get; set; }
-
     static string MonthName(string yyyyMM)
     {
         var parts = yyyyMM.Split('-');
@@ -156,23 +153,26 @@ else
     protected override async Task OnInitializedAsync()
     {
         availableMonths = await AltRankingSvc.GetAvailableMonthsAsync();
-
-        // Restore from the URL if we got here via the browser back button (or a shared link) -
-        // otherwise default to the most recent month, same as before.
-        if (!string.IsNullOrWhiteSpace(GenderParam))   selectedGender = GenderParam;
-        if (InactiveParam.HasValue)                    showInactive   = InactiveParam.Value;
-        if (!string.IsNullOrWhiteSpace(SearchParam))   searchQuery    = SearchParam;
-        if (PageParam is int p and >= 0)                currentPage    = p;
-
         if (availableMonths.Count > 0)
         {
-            selectedMonth = !string.IsNullOrWhiteSpace(MonthParam) && availableMonths.Contains(MonthParam)
-                ? MonthParam!
-                : availableMonths[0];
-            selectedYear = int.Parse(selectedMonth.Split('-')[0]);
             availableYears = availableMonths.Select(m => int.Parse(m.Split('-')[0])).Distinct().OrderByDescending(y => y).ToList();
+            selectedMonth = availableMonths[0];   // newest overall
+            selectedYear  = int.Parse(selectedMonth.Split('-')[0]);
             RefreshMonthsForYear();
         }
+
+        // Restore filters from the URL (if present) so browser Back from a player's tournament
+        // page returns to exactly the view the user had, rather than resetting to defaults.
+        if (!string.IsNullOrWhiteSpace(QsMonth) && availableMonths.Contains(QsMonth))
+        {
+            selectedMonth = QsMonth;
+            selectedYear = int.Parse(selectedMonth.Split('-')[0]);
+            RefreshMonthsForYear();
+        }
+        if (!string.IsNullOrWhiteSpace(QsGender)) selectedGender = QsGender;
+        if (QsInactive.HasValue) showInactive = QsInactive.Value;
+        if (!string.IsNullOrWhiteSpace(QsSearch)) searchQuery = QsSearch;
+        if (QsPage.HasValue && QsPage.Value > 0) currentPage = QsPage.Value - 1;
 
         typedPage = currentPage + 1;
         await LoadAsync();
@@ -183,19 +183,17 @@ else
         monthsForSelectedYear = availableMonths.Where(m => m.StartsWith(selectedYear + "-")).OrderByDescending(m => m).ToList();
     }
 
-    /// <summary>Keeps the address bar in sync with the current filters, so the browser's back button
-    /// (e.g. after clicking into a player's tournaments) comes back to exactly this view.</summary>
     void UpdateUrl()
     {
-        var query = new Dictionary<string, object?>
+        var uri = Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
         {
-            ["month"]    = selectedMonth,
-            ["gender"]   = selectedGender == "all" ? null : selectedGender,
-            ["inactive"] = showInactive ? (bool?)true : null,
-            ["search"]   = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery,
-            ["page"]     = currentPage == 0 ? null : currentPage,
-        };
-        Nav.NavigateTo(Nav.GetUriWithQueryParameters(query), replace: true);
+            ["month"] = selectedMonth,
+            ["gender"] = selectedGender,
+            ["inactive"] = showInactive ? true : (bool?)null,
+            ["search"] = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery,
+            ["page"] = currentPage > 0 ? currentPage + 1 : (int?)null,
+        });
+        Nav.NavigateTo(uri, replace: true);
     }
 
     async Task OnYearChanged(ChangeEventArgs e)

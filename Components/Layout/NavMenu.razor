@@ -212,9 +212,9 @@
 @code {
     bool prognozesOpen = false;
     bool latviaTTOpen  = false;
+    bool altTTOpen     = false;
     bool gamesOpen     = false;
     bool adminOpen     = false;
-    bool altTTOpen     = false;
     bool _restoreNavAfterRender = false;
     List<MartinsWeb.Models.Tournament>? activeTournaments;
     List<MartinsWeb.Models.Tournament>? archivedTournaments;
@@ -224,10 +224,10 @@
     protected override async Task OnInitializedAsync()
     {
         prognozesOpen = Nav.Uri.Contains("/prognozes/");
-        latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt");
+        latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt") && !Nav.Uri.Contains("/lgtf-tt/rankings2") && !Nav.Uri.Contains("/lgtf-tt/alt");
+        altTTOpen     = Nav.Uri.Contains("/lgtf-tt/rankings2") || Nav.Uri.Contains("/lgtf-tt/alt");
         gamesOpen     = Nav.Uri.Contains("/tetris");
         adminOpen     = Nav.Uri.Contains("/globaladmin") || Nav.Uri.Contains("/aptauja/admin") || Nav.Uri.Contains("/valstis");
-        altTTOpen     = Nav.Uri.Contains("/lgtf-tt/rankings2") || Nav.Uri.Contains("/lgtf-tt/alt");
         var all = await GameService.GetAllTournamentsAsync();
         activeTournaments = all.Where(t => t.IsActive).ToList();
         archivedTournaments = all.Where(t => !t.IsActive).ToList();
@@ -267,6 +267,12 @@
         _restoreNavAfterRender = true;
     }
 
+    void ToggleAltTT()
+    {
+        altTTOpen = !altTTOpen;
+        _restoreNavAfterRender = true;
+    }
+
     void ToggleGames()
     {
         gamesOpen = !gamesOpen;
@@ -276,12 +282,6 @@
     void ToggleAdmin()
     {
         adminOpen = !adminOpen;
-        _restoreNavAfterRender = true;
-    }
-
-    void ToggleAltTT()
-    {
-        altTTOpen = !altTTOpen;
         _restoreNavAfterRender = true;
     }
 
