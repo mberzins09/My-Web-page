@@ -26,10 +26,11 @@ namespace MartinsWeb.Services
 
         private readonly Dictionary<int, TtRankedPlayer> _playerCache = new();
         private readonly LgtfRankingService _rankingService;
+        private readonly AltRankingService _altRankingService;
 
         public bool IsRunning { get; private set; }
 
-        public LgtfImportService(IConfiguration config, IHttpClientFactory httpFactory, LgtfRankingService rankingService)
+        public LgtfImportService(IConfiguration config, IHttpClientFactory httpFactory, LgtfRankingService rankingService, AltRankingService altRankingService)
         {
             _cs = config.GetConnectionString("LgtfConnection") ?? $"Data Source={Path.Combine(Directory.GetCurrentDirectory(), "lgtf.sqlite")}";
             _http = httpFactory.CreateClient("lgtf");
@@ -37,6 +38,7 @@ namespace MartinsWeb.Services
             _http.DefaultRequestHeaders.Add("Accept", "application/json");
             _http.Timeout = TimeSpan.FromSeconds(90);
             _rankingService = rankingService;
+            _altRankingService = altRankingService;
         }
 
         public async Task<int> GetOrCreatePlayer(string name, string surname)
@@ -411,6 +413,19 @@ namespace MartinsWeb.Services
             catch (Exception ex)
             {
                 progress($"⚠️ Recalculation failed: {ex.Message}");
+            }
+
+            // Alternative (Elo) ranking has no API anchor to recalculate just the affected months
+            // against, so it always replays its full history - safe and idempotent (UPSERT by
+            // player+month), just more work than strictly necessary for a small, recent import.
+            progress("\n📈 Updating alternative ranking…");
+            try
+            {
+                await _altRankingService.RunIncrementalAsync(progress);
+            }
+            catch (Exception ex)
+            {
+                progress($"⚠️ Alternative ranking recalculation failed: {ex.Message}");
             }
         }
 

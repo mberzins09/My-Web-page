@@ -9,17 +9,47 @@
 }
 
 .group-table .team-col {
-    min-width: 70px;
-    max-width: 120px;
-    font-size: .75rem;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    /* Column headers are just the row number now (see .std-row-num) - the full name already
+       shows once, in team-name-col on the left, so repeating it per column only cost space. */
+    width: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    font-size: .78rem;
 }
 
 .group-table .team-name-col {
     white-space: nowrap;
-    min-width: 110px;
+    max-width: 600px;
+}
+
+.std-row-label {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    min-width: 0;
+    max-width: 600px;
+}
+
+.std-row-num {
+    flex-shrink: 0;
+    color: #888;
+    font-weight: 400;
+}
+
+.std-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.std-row-rank {
+    flex-shrink: 0;
+    font-size: .85em;
+    opacity: .8;
+    font-weight: 400;
+    white-space: nowrap;
 }
 
 .group-table .score-cell {

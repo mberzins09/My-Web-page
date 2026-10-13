@@ -183,9 +183,9 @@
                                     <thead>
                                         <tr class="table-primary">
                                             <th class="team-name-col"></th>
-                                            @foreach (var s in sorted)
+                                            @for (int h = 0; h < sorted.Count; h++)
                                             {
-                                                <th class="text-center team-col" title="@s.Team">@s.Team</th>
+                                                <th @key="sorted[h].Team" class="text-center team-col" title="@sorted[h].Team">@(h + 1)</th>
                                             }
                                             <th class="text-center stat-col">Pts</th>
                                             <th class="text-center stat-col">±</th>
@@ -198,7 +198,14 @@
                                             var row   = sorted[i];
                                             var place = i + 1;
                                             <tr class="table-dark">
-                                                <td class="team-name-col"><strong>@row.Team</strong></td>
+                                                <td class="team-name-col">
+                                                    @{ var (rowName, rowRank) = PredictionHelper.SplitTeamText(row.Team); }
+                                                    <strong class="std-row-label" title="@row.Team">
+                                                        <span class="std-row-num">@place.</span>
+                                                        <span class="std-row-name">@rowName</span>
+                                                        @if (rowRank.Length > 0) { <span class="std-row-rank">@rowRank</span> }
+                                                    </strong>
+                                                </td>
                                                 @foreach (var col in sorted)
                                                 {
                                                     @if (row.Team == col.Team)

@@ -71,9 +71,20 @@ else
                         <span class="pcv2-stage">@match.Stage</span>
                     </div>
 
-                    @* ── Row 2: "TeamA vs TeamB" left · score + ▼ right ─ *@
+                    @* ── Row 2: teams (home over away) left · score + ▼ right ─ *@
                     <div class="pcv2-row2">
-                        <span class="pcv2-teams">@match.HomeTeam vs @match.AwayTeam</span>
+                        <div class="pcv2-teams-2row" style="min-width:0; flex:1 1 auto; max-width:100%">
+                            @{ var (homeName, homeRank) = PredictionHelper.SplitTeamText(match.HomeTeam); }
+                            <div class="pcv2-team-line" title="@match.HomeTeam">
+                                <span class="pcv2-team-name">@homeName</span>
+                                @if (homeRank.Length > 0) { <span class="pcv2-team-rank">@homeRank</span> }
+                            </div>
+                            @{ var (awayName, awayRank) = PredictionHelper.SplitTeamText(match.AwayTeam); }
+                            <div class="pcv2-team-line" title="@match.AwayTeam">
+                                <span class="pcv2-team-name">@awayName</span>
+                                @if (awayRank.Length > 0) { <span class="pcv2-team-rank">@awayRank</span> }
+                            </div>
+                        </div>
                         <div class="pcv2-score-wrap">
                             <span class="pcv2-score">
                                 @if (match.HomeScore != null)

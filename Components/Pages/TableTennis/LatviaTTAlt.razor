@@ -1,0 +1,197 @@
+@page "/lgtf-tt/alt"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject AltRankingService AltSvc
+@inject NavigationManager Nav
+
+<h3>📈 Alternative Rankings — Tournaments</h3>
+
+<div class="mb-3" style="max-width:400px; position:relative">
+    <label class="form-label">Search player</label>
+    <input class="form-control" placeholder="Name or surname..."
+           @bind="searchQuery" @bind:event="oninput"
+           @onkeyup="OnSearchKey" />
+
+    @if (searchResults.Count > 0)
+    {
+        <div class="list-group shadow" style="position:absolute;z-index:100;width:100%">
+            @foreach (var p in searchResults)
+            {
+                var player = p;
+                <button type="button" class="list-group-item list-group-item-action"
+                        @onclick="() => SelectPlayer(player)">
+                    @player.FullName
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (selectedPlayer != null)
+{
+    <h5 class="mt-2">
+        📋 Tournaments — <strong>@selectedPlayer.FullName</strong>
+        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="ClearPlayer">✕</button>
+    </h5>
+
+    <div class="mb-2 d-flex flex-wrap gap-1">
+        <button class="btn btn-sm @(selectedYear == null ? "btn-primary" : "btn-outline-primary")"
+                @onclick="SelectAllYears">All</button>
+        @foreach (var yr in availableYears)
+        {
+            var y = yr;
+            <button class="btn btn-sm @(selectedYear == y ? "btn-primary" : "btn-outline-primary")"
+                    @onclick="() => SelectYear(y)">@y</button>
+        }
+    </div>
+
+    @if (tournaments == null)
+    {
+        <p>Loading...</p>
+    }
+    else if (tournaments.Count == 0)
+    {
+        <p class="text-muted">No tournaments found.</p>
+    }
+    else
+    {
+        int ratingTotal = tournaments.Sum(t => t.RatingDiffTotal);
+        <div class="mb-3" style="font-size:.85rem">
+            Rating total (@tournaments.Count tournaments):
+            <strong class="@RatingClass(ratingTotal)">@RatingStr(ratingTotal)</strong>
+        </div>
+
+        <div class="tt-grid">
+            @foreach (var t in tournaments)
+            {
+                var tournament = t;
+                <div class="tt-card" @onclick="() => GoToTournament(tournament.Id)">
+                    <div class="tt-card-top">
+                        <span class="tt-name" title="@tournament.Name">@Truncate(tournament.Name)</span>
+                        <span class="tt-date">@tournament.Date.ToString("dd MMM yyyy")</span>
+                    </div>
+                    <div class="tt-card-bottom">
+                        <span class="tt-coef">Coef: <strong>@tournament.Coef</strong></span>
+                        <span class="tt-gwl">
+                            <span class="tt-stat-box">G: @tournament.GamesCount</span>
+                            <span class="tt-stat-box tt-wins">W: @tournament.Wins</span>
+                            <span class="tt-stat-box tt-losses">L: @tournament.Losses</span>
+                        </span>
+                        <span class="tt-rating fw-semibold @RatingClass(tournament.RatingDiffTotal)">
+                            @RatingStr(tournament.RatingDiffTotal)
+                        </span>
+                    </div>
+                    @if (tournament.IsFirstTournament || tournament.Correction.HasValue)
+                    {
+                        <div style="font-size:.72rem;color:#adb5bd">
+                            @if (tournament.IsFirstTournament)
+                            {
+                                <span>🆕 First tournament - seeded at @tournament.InitialRating</span>
+                            }
+                            @if (tournament.Correction.HasValue)
+                            {
+                                <span>⚖️ Corrected @tournament.PointsBefore → @tournament.Correction before this tournament's games</span>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <p class="text-muted mt-2" style="font-size:.8rem">
+            @tournaments.Count tournament(s) — click a card to see games
+        </p>
+    }
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "pid")]  public int? PidParam  { get; set; }
+    [SupplyParameterFromQuery(Name = "year")] public int? YearParam { get; set; }
+
+    string            searchQuery   = "";
+    List<AltTtPlayer> searchResults = [];
+    AltTtPlayer?      selectedPlayer;
+    List<int>         availableYears = [];
+    int?              selectedYear;
+    List<AltTtCompetition>? tournaments;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (PidParam.HasValue && PidParam > 0 &&
+            (selectedPlayer == null || selectedPlayer.Id != PidParam.Value))
+        {
+            var p = await AltSvc.GetPlayerAsync(PidParam.Value);
+            if (p != null)
+            {
+                selectedPlayer = p;
+                searchQuery    = p.FullName;
+                searchResults.Clear();
+                availableYears = await AltSvc.GetYearsForPlayerAsync(p.Id);
+            }
+        }
+
+        if (selectedPlayer != null)
+        {
+            selectedYear = YearParam.HasValue && YearParam > 0 ? YearParam : null;
+            await LoadTournaments();
+        }
+    }
+
+    async Task OnSearchKey()
+    {
+        if (searchQuery.Length < 2) { searchResults.Clear(); return; }
+        var (players, _, _) = await AltSvc.GetCurrentPageAsync(null, true, 0, 10, searchQuery);
+        searchResults = players.Select(p => new AltTtPlayer { Id = p.PlayerId, Name = p.Name, Surname = p.Surname, Gender = p.Gender }).ToList();
+    }
+
+    async Task SelectPlayer(AltTtPlayer p)
+    {
+        selectedPlayer = p;
+        searchQuery    = p.FullName;
+        searchResults.Clear();
+        selectedYear   = null;
+        availableYears = await AltSvc.GetYearsForPlayerAsync(p.Id);
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt/alt?pid=" + p.Id, replace: true);
+    }
+
+    void ClearPlayer()
+    {
+        selectedPlayer = null; searchQuery = "";
+        tournaments = null; availableYears.Clear(); selectedYear = null;
+        Nav.NavigateTo("/lgtf-tt/alt", replace: true);
+    }
+
+    async Task SelectAllYears()
+    {
+        selectedYear = null;
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt/alt?pid=" + selectedPlayer!.Id, replace: true);
+    }
+
+    async Task SelectYear(int year)
+    {
+        selectedYear = year;
+        await LoadTournaments();
+        Nav.NavigateTo("/lgtf-tt/alt?pid=" + selectedPlayer!.Id + "&year=" + year, replace: true);
+    }
+
+    async Task LoadTournaments()
+    {
+        if (selectedPlayer == null) return;
+        tournaments = null;
+        StateHasChanged();
+        tournaments = await AltSvc.GetTournamentsForPlayerAsync(selectedPlayer.Id, selectedYear);
+    }
+
+    void GoToTournament(int competitionId)
+    {
+        if (selectedPlayer == null) return;
+        Nav.NavigateTo("/lgtf-tt/alt/" + selectedPlayer.Id + "/" + competitionId);
+    }
+
+    static string Truncate(string s, int max = 70) => s.Length <= max ? s : s[..max] + "…";
+    static string RatingClass(int v) => v > 0 ? "text-success" : v < 0 ? "text-danger" : "text-white";
+    static string RatingStr(int v)   => v > 0 ? "+" + v : v.ToString();
+}

@@ -1,0 +1,280 @@
+@page "/lgtf-tt/rankings2"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject AltRankingService AltRankingSvc
+@inject NavigationManager Nav
+
+<h3>📈 Alternative Rankings</h3>
+<p class="text-muted" style="font-size:.85rem">
+    A separate Elo-style ranking, calculated independently from the official Latvia TT ranking above.
+    It never syncs against the official API - it only replays your own competition history.
+</p>
+
+@* ── Filters ─────────────────────────────────────────────────────────────── *@
+<div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+    <div>
+        <label class="form-label mb-1 small">Year</label>
+        <select class="form-select form-select-sm" style="width:100px" value="@selectedYear" @onchange="OnYearChanged">
+            @foreach (var y in availableYears)
+            {
+                <option value="@y">@y</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label mb-1 small">Month</label>
+        <select class="form-select form-select-sm" style="width:140px" value="@selectedMonth" @onchange="OnMonthChanged">
+            @foreach (var m in monthsForSelectedYear)
+            {
+                <option value="@m">@MonthName(m)</option>
+            }
+        </select>
+    </div>
+
+    <div class="btn-group" role="group" aria-label="Gender filter">
+        <button class="btn btn-sm @(selectedGender == "all" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("all")'>All</button>
+        <button class="btn btn-sm @(selectedGender == "male" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("male")'>♂ Male</button>
+        <button class="btn btn-sm @(selectedGender == "female" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("female")'>♀ Female</button>
+        <button class="btn btn-sm @(selectedGender == "alllatvians" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("alllatvians")'>🇱🇻 All Latvians</button>
+        <button class="btn btn-sm @(selectedGender == "foreigns" ? "btn-primary" : "btn-outline-primary")"
+                @onclick='() => SetGender("foreigns")'>♀♂ Foreigns</button>
+    </div>
+
+    <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" role="switch" id="rank2ActiveToggle"
+               checked="@showInactive" @onchange="OnToggleActive" />
+        <label class="form-check-label" for="rank2ActiveToggle">Show inactive</label>
+    </div>
+</div>
+
+<div class="mb-3" style="max-width:380px">
+    <input class="form-control" placeholder="Search by name or surname…"
+           value="@searchQuery" @oninput="OnSearch" />
+    <div class="text-muted" style="font-size:.75rem">Shows each player's real place in the ranking, not their order within the search results.</div>
+</div>
+
+@* ── Content ─────────────────────────────────────────────────────────────── *@
+@if (loading)
+{
+    <p class="text-muted">Loading…</p>
+}
+else if (month == null)
+{
+    <p class="text-muted">No alternative ranking data yet - run it from /lgtf-tt/admin.</p>
+}
+else if (!players.Any())
+{
+    <p class="text-muted">No players found.</p>
+}
+else
+{
+    <p class="text-muted mb-2" style="font-size:.82rem">
+        Showing: <strong>@MonthName(month) @month!.Split('-')[0]</strong> · @total player(s)
+    </p>
+
+    <div class="rank2-wrapper" style="max-width:560px">
+        <div class="rank2-header">
+            <span class="rank2-place-col">#</span>
+            <span class="rank2-name">Name</span>
+            <span class="rank2-points-col">Points</span>
+        </div>
+        @foreach (var p in players)
+        {
+            <div class="rank2-card @(p.IsActive ? "" : "rank2-inactive")" @key="p.PlayerId" style="cursor:pointer" @onclick="() => GoToPlayer(p.PlayerId)">
+                <span class="rank2-place-col">@p.Place</span>
+                <span class="rank2-name">
+                    @p.Name @p.Surname
+                    @if (p.Gender == "male") { <text> ♂</text> }
+                    else if (p.Gender == "female") { <text> ♀</text> }
+                    @if (!p.IsActive)
+                    {
+                        <span class="badge bg-secondary ms-1" style="font-size:.6rem;vertical-align:middle">Inactive</span>
+                    }
+                </span>
+                <span class="rank2-points-col"><strong>@p.Points</strong></span>
+            </div>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(searchQuery) && totalPages > 0)
+    {
+        <div class="d-flex flex-wrap gap-2 mt-3 align-items-center">
+            <button class="btn btn-sm btn-outline-primary" @onclick="PrevPage" disabled="@(currentPage == 0)">← Prev</button>
+            <span class="small text-muted">Page @(currentPage + 1) / @totalPages</span>
+            <button class="btn btn-sm btn-outline-primary" @onclick="NextPage" disabled="@(currentPage >= totalPages - 1)">Next →</button>
+
+            <form class="d-flex align-items-center gap-1 ms-2" @onsubmit="GoToTypedPage">
+                <label class="small text-muted mb-0">Go to page:</label>
+                <input type="number" class="form-control form-control-sm" style="width:72px"
+                       min="1" max="@totalPages" @bind="typedPage" @bind:event="oninput" />
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
+            </form>
+        </div>
+    }
+}
+
+@code {
+    const int PageSize = 100;
+
+    bool loading = true;
+    bool showInactive = false;
+    string selectedGender = "all";
+    string searchQuery = "";
+    int currentPage = 0;
+    int typedPage = 1;
+
+    List<AltPlayerRankingRow> players = new();
+    int total;
+    string? month;
+
+    List<string> availableMonths = new();   // every "yyyy-MM" that has data, newest first
+    List<int> availableYears = new();
+    List<string> monthsForSelectedYear = new();
+    int selectedYear;
+    string selectedMonth = "";
+
+    [SupplyParameterFromQuery(Name = "month")]    public string? MonthParam    { get; set; }
+    [SupplyParameterFromQuery(Name = "gender")]   public string? GenderParam   { get; set; }
+    [SupplyParameterFromQuery(Name = "inactive")] public bool?   InactiveParam { get; set; }
+    [SupplyParameterFromQuery(Name = "search")]   public string? SearchParam   { get; set; }
+    [SupplyParameterFromQuery(Name = "page")]     public int?    PageParam     { get; set; }
+
+    static string MonthName(string yyyyMM)
+    {
+        var parts = yyyyMM.Split('-');
+        int m = int.Parse(parts[1]);
+        return System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(m);
+    }
+
+    int totalPages => (int)Math.Ceiling(total / (double)PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        availableMonths = await AltRankingSvc.GetAvailableMonthsAsync();
+
+        // Restore from the URL if we got here via the browser back button (or a shared link) -
+        // otherwise default to the most recent month, same as before.
+        if (!string.IsNullOrWhiteSpace(GenderParam))   selectedGender = GenderParam;
+        if (InactiveParam.HasValue)                    showInactive   = InactiveParam.Value;
+        if (!string.IsNullOrWhiteSpace(SearchParam))   searchQuery    = SearchParam;
+        if (PageParam is int p and >= 0)                currentPage    = p;
+
+        if (availableMonths.Count > 0)
+        {
+            selectedMonth = !string.IsNullOrWhiteSpace(MonthParam) && availableMonths.Contains(MonthParam)
+                ? MonthParam!
+                : availableMonths[0];
+            selectedYear = int.Parse(selectedMonth.Split('-')[0]);
+            availableYears = availableMonths.Select(m => int.Parse(m.Split('-')[0])).Distinct().OrderByDescending(y => y).ToList();
+            RefreshMonthsForYear();
+        }
+
+        typedPage = currentPage + 1;
+        await LoadAsync();
+    }
+
+    void RefreshMonthsForYear()
+    {
+        monthsForSelectedYear = availableMonths.Where(m => m.StartsWith(selectedYear + "-")).OrderByDescending(m => m).ToList();
+    }
+
+    /// <summary>Keeps the address bar in sync with the current filters, so the browser's back button
+    /// (e.g. after clicking into a player's tournaments) comes back to exactly this view.</summary>
+    void UpdateUrl()
+    {
+        var query = new Dictionary<string, object?>
+        {
+            ["month"]    = selectedMonth,
+            ["gender"]   = selectedGender == "all" ? null : selectedGender,
+            ["inactive"] = showInactive ? (bool?)true : null,
+            ["search"]   = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery,
+            ["page"]     = currentPage == 0 ? null : currentPage,
+        };
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(query), replace: true);
+    }
+
+    async Task OnYearChanged(ChangeEventArgs e)
+    {
+        selectedYear = int.Parse(e.Value?.ToString() ?? selectedYear.ToString());
+        RefreshMonthsForYear();
+        selectedMonth = monthsForSelectedYear.FirstOrDefault() ?? selectedMonth;
+        currentPage = 0;
+        typedPage = 1;
+        UpdateUrl();
+        await LoadAsync();
+    }
+
+    async Task OnMonthChanged(ChangeEventArgs e)
+    {
+        selectedMonth = e.Value?.ToString() ?? selectedMonth;
+        currentPage = 0;
+        typedPage = 1;
+        UpdateUrl();
+        await LoadAsync();
+    }
+
+    async Task LoadAsync()
+    {
+        loading = true;
+        StateHasChanged();
+        (players, total, month) = await AltRankingSvc.GetCurrentPageAsync(
+            selectedGender, showInactive, currentPage, PageSize, searchQuery, selectedMonth);
+        loading = false;
+    }
+
+    async Task SetGender(string g)
+    {
+        selectedGender = g;
+        currentPage = 0;
+        typedPage = 1;
+        UpdateUrl();
+        await LoadAsync();
+    }
+
+    async Task OnToggleActive(ChangeEventArgs e)
+    {
+        showInactive = (bool)(e.Value ?? false);
+        currentPage = 0;
+        typedPage = 1;
+        UpdateUrl();
+        await LoadAsync();
+    }
+
+    CancellationTokenSource? _searchCts;
+
+    async Task OnSearch(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        currentPage = 0;
+        typedPage = 1;
+
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, cts.Token);
+            UpdateUrl();
+            await LoadAsync();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    async Task PrevPage() { if (currentPage > 0) { currentPage--; typedPage = currentPage + 1; UpdateUrl(); await LoadAsync(); } }
+    async Task NextPage() { if (currentPage < totalPages - 1) { currentPage++; typedPage = currentPage + 1; UpdateUrl(); await LoadAsync(); } }
+
+    async Task GoToTypedPage()
+    {
+        int clamped = Math.Clamp(typedPage, 1, Math.Max(1, totalPages));
+        typedPage = clamped;
+        currentPage = clamped - 1;
+        UpdateUrl();
+        await LoadAsync();
+    }
+
+    void GoToPlayer(int playerId) => Nav.NavigateTo("/lgtf-tt/alt?pid=" + playerId);
+}

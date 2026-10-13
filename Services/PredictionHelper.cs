@@ -7,6 +7,25 @@ namespace MartinsWeb.Services
     {
         public static DateTime LatviaTime => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Riga"));
 
+        /// <summary>
+        /// Splits a team's display text into the name (with its flag, if any) and its ranking, so a
+        /// card can truncate a long name with CSS ellipsis while always keeping the "(9476)" rank
+        /// fully visible. "🇱🇻 GTK NAMEJS-ILUMHOUSE.COM(9476)" -> ("🇱🇻 GTK NAMEJS-ILUMHOUSE.COM", "(9476)").
+        /// A team with no rank, or one not created from the country dropdown at all, just gets its
+        /// whole text back as Name with an empty Rank - the card then shows it exactly as before.
+        /// </summary>
+        public static (string Name, string Rank) SplitTeamText(string? text)
+        {
+            string s = (text ?? "").TrimEnd();
+            if (s.Length > 0 && s[^1] == ')')
+            {
+                int open = s.LastIndexOf('(');
+                if (open > 0 && int.TryParse(s[(open + 1)..^1], out _))
+                    return (s[..open].TrimEnd(), s[open..]);
+            }
+            return (s, "");
+        }
+
         public static int StageOrder(string stage) => stage.ToLower() switch
         {
             var s when s.Contains("grupa") => 0,

@@ -18,6 +18,7 @@ builder.Services.AddScoped<UserContextService>();
 builder.Services.AddScoped<LgtfDataService>();
 builder.Services.AddScoped<LgtfRankingService>();
 builder.Services.AddScoped<LgtfImportService>();
+builder.Services.AddScoped<AltRankingService>();
 builder.Services.AddScoped<LgtfAdminService>();
 builder.Services.AddScoped<ForeignPointsService>();
 builder.Services.AddScoped<SuggestionService>();

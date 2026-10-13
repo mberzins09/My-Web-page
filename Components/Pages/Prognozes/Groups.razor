@@ -50,9 +50,9 @@ else
                 <thead>
                     <tr class="table-primary">
                         <th class="team-name-col"></th>
-                        @foreach (var s in sorted)
+                        @for (int h = 0; h < sorted.Count; h++)
                         {
-                            <th @key="s.Team" class="text-center team-col" title="@s.Team">@s.Team</th>
+                            <th @key="sorted[h].Team" class="text-center team-col" title="@sorted[h].Team">@(h + 1)</th>
                         }
                         <th class="text-center stat-col">Pts</th>
                         <th class="text-center stat-col">±</th>
@@ -65,7 +65,12 @@ else
                         var row   = sorted[i];
                         var place = i + 1;
                         <tr @key="row.Team" class="table-dark">
-                            <td class="team-name-col"><strong>@row.Team</strong></td>
+                            <td class="team-name-col">
+                                <strong class="std-row-label" title="@row.Team">
+                                    <span class="std-row-num">@(i + 1).</span>
+                                    <span class="std-row-name">@row.Team</span>
+                                </strong>
+                            </td>
                             @foreach (var col in sorted)
                             {
                                 @if (row.Team == col.Team)

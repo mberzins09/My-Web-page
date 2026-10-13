@@ -99,9 +99,20 @@
                                 <span class="pcv2-stage">@game.Stage</span>
                             </div>
 
-                            @* ── Row 2: "TeamA vs TeamB ▼" left-aligned ──── *@
+                            @* ── Row 2: teams (home over away) left · expand ▼ right ─── *@
                             <div class="pcv2-row2">
-                                <span class="pcv2-teams">@game.HomeTeam vs @game.AwayTeam</span>
+                                <div class="pcv2-teams-2row" style="min-width:0; flex:1 1 auto; max-width:100%">
+                                    @{ var (homeName, homeRank) = PredictionHelper.SplitTeamText(game.HomeTeam); }
+                                    <div class="pcv2-team-line" title="@game.HomeTeam">
+                                        <span class="pcv2-team-name">@homeName</span>
+                                        @if (homeRank.Length > 0) { <span class="pcv2-team-rank">@homeRank</span> }
+                                    </div>
+                                    @{ var (awayName, awayRank) = PredictionHelper.SplitTeamText(game.AwayTeam); }
+                                    <div class="pcv2-team-line" title="@game.AwayTeam">
+                                        <span class="pcv2-team-name">@awayName</span>
+                                        @if (awayRank.Length > 0) { <span class="pcv2-team-rank">@awayRank</span> }
+                                    </div>
+                                </div>
                                 <button class="btn btn-link btn-sm pcv2-expand-btn"
                                         title="Show team history"
                                         @onclick="() => ToggleTeamHistory(game.Id)">
@@ -123,9 +134,17 @@
                                     }
                                     else
                                     {
+                                        var (histHomeName, histHomeRank) = PredictionHelper.SplitTeamText(game.HomeTeam);
+                                        var (histAwayName, histAwayRank) = PredictionHelper.SplitTeamText(game.AwayTeam);
                                         <div class="pcv2-history-header">
-                                            <span>@game.HomeTeam</span>
-                                            <span style="text-align:right;">@game.AwayTeam</span>
+                                            <div class="pcv2-history-side">
+                                                <span class="pcv2-history-name">@histHomeName</span>
+                                                @if (histHomeRank.Length > 0) { <span class="pcv2-history-tail">@histHomeRank</span> }
+                                            </div>
+                                            <div class="pcv2-history-side pcv2-history-side-right">
+                                                @if (histAwayRank.Length > 0) { <span class="pcv2-history-tail">@histAwayRank</span> }
+                                                <span class="pcv2-history-name">@histAwayName</span>
+                                            </div>
                                         </div>
                                         @for (int i = 0; i < maxRows; i++)
                                         {
@@ -133,26 +152,28 @@
                                                 @if (i < homeHistory.Count)
                                                 {
                                                     var h = homeHistory[i];
-                                                    <span class="@HistoryResultClass(h.TeamGoals, h.OppGoals)">
-                                                        vs @h.Opponent <strong>@h.TeamGoals:@h.OppGoals@(h.OT ? " OT" : "")</strong>
-                                                    </span>
+                                                    var (hOppName, hOppRank) = PredictionHelper.SplitTeamText(h.Opponent);
+                                                    <div class="pcv2-history-side @HistoryResultClass(h.TeamGoals, h.OppGoals)">
+                                                        <span class="pcv2-history-name">vs @hOppName</span>
+                                                        <span class="pcv2-history-tail">@(hOppRank.Length > 0 ? hOppRank + " " : "")<strong>@h.TeamGoals:@h.OppGoals@(h.OT ? " OT" : "")</strong></span>
+                                                    </div>
                                                 }
                                                 else
                                                 {
-
-                                                    <span></span>
+                                                    <div></div>
                                                 }
                                                 @if (i < awayHistory.Count)
                                                 {
                                                     var a = awayHistory[i];
-                                                    <span class="@HistoryResultClass(a.TeamGoals, a.OppGoals)" style="text-align:right;">
-                                                        <strong>@a.TeamGoals:@a.OppGoals@(a.OT ? " OT" : "")</strong> vs @a.Opponent
-                                                    </span>
+                                                    var (aOppName, aOppRank) = PredictionHelper.SplitTeamText(a.Opponent);
+                                                    <div class="pcv2-history-side pcv2-history-side-right @HistoryResultClass(a.TeamGoals, a.OppGoals)">
+                                                        <span class="pcv2-history-tail"><strong>@a.TeamGoals:@a.OppGoals@(a.OT ? " OT" : "")</strong>@(aOppRank.Length > 0 ? " " + aOppRank : "")</span>
+                                                        <span class="pcv2-history-name">vs @aOppName</span>
+                                                    </div>
                                                 }
                                                 else
                                                 {
-
-                                                    <span></span>
+                                                    <div></div>
                                                 }
                                             </div>
                                         }
@@ -271,9 +292,9 @@
                             <thead>
                                 <tr class="table-primary">
                                     <th class="team-name-col"></th>
-                                    @foreach (var s in sorted)
+                                    @for (int h = 0; h < sorted.Count; h++)
                                     {
-                                        <th @key="s.Team" class="text-center team-col" title="@s.Team">@s.Team</th>
+                                        <th @key="sorted[h].Team" class="text-center team-col" title="@sorted[h].Team">@(h + 1)</th>
                                     }
                                     <th class="text-center stat-col">Pts</th>
                                     <th class="text-center stat-col">±</th>
@@ -286,7 +307,14 @@
                                     var row = sorted[i];
                                     var place = i + 1;
                                     <tr @key="row.Team" class="table-dark">
-                                        <td class="team-name-col"><strong>@row.Team</strong></td>
+                                        <td class="team-name-col">
+                                            @{ var (rowName, rowRank) = PredictionHelper.SplitTeamText(row.Team); }
+                                            <strong class="std-row-label" title="@row.Team">
+                                                <span class="std-row-num">@place.</span>
+                                                <span class="std-row-name">@rowName</span>
+                                                @if (rowRank.Length > 0) { <span class="std-row-rank">@rowRank</span> }
+                                            </strong>
+                                        </td>
                                         @foreach (var col in sorted)
                                         {
                                             @if (row.Team == col.Team)

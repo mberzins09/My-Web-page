@@ -1,0 +1,156 @@
+/* Home team over away team, instead of "TeamA vs TeamB" squeezed onto one line. A long club name
+   truncates with an ellipsis; the "(rank)" suffix never does - see PredictionHelper.SplitTeamText,
+   which pulls it off the end before this ever sees it. */
+.pcv2-teams-2row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.pcv2-team-line {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pcv2-team-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.pcv2-team-rank {
+    flex-shrink: 0;
+    font-size: .85em;
+    opacity: .8;
+    white-space: nowrap;
+}
+
+/* ── Group standings matrix (head-to-head table) ─────────────────────────
+   Same approach as Groups.razor.css: column headers are just the row number
+   (the full name is already shown once, in the left-hand name column), and
+   a long team name truncates with an ellipsis while its "(rank)" stays put. */
+.group-table {
+    width: auto;
+    font-size: .875rem;
+}
+
+.group-table .black-cell {
+    background-color: #ffffff !important;
+    min-width: 48px;
+}
+
+.group-table .team-col {
+    width: 28px;
+    min-width: 28px;
+    max-width: 28px;
+    font-size: .78rem;
+}
+
+.group-table .team-name-col {
+    white-space: nowrap;
+    max-width: 600px;
+}
+
+.group-table .score-cell {
+    min-width: 48px;
+    white-space: nowrap;
+}
+
+.group-table .stat-col {
+    min-width: 42px;
+}
+
+.std-row-label {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    min-width: 0;
+    max-width: 600px;
+}
+
+.std-row-num {
+    flex-shrink: 0;
+    color: #888;
+    font-weight: 400;
+}
+
+.std-row-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.std-row-rank {
+    flex-shrink: 0;
+    font-size: .85em;
+    opacity: .8;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+/* ── Team history expand panel (MyPredictions only) ──────────────────────
+   app.css's global ".pcv2-history-row span" rule makes every span ellipsis +
+   flex:1, which used to risk clipping the score/rank, not just the name,
+   whichever ran out of room first. These more specific rules (two classes
+   beat the global's one-class-plus-element selector) split each side into a
+   shrinking name and a fixed-width tail (rank + score) that's never cut. */
+.pcv2-history-row .pcv2-history-side {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.pcv2-history-row .pcv2-history-side-right {
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.pcv2-history-row .pcv2-history-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.pcv2-history-row .pcv2-history-tail {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.pcv2-history-header .pcv2-history-side {
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    min-width: 0;
+    flex: 1 1 0;
+}
+
+.pcv2-history-header .pcv2-history-side-right {
+    justify-content: flex-end;
+}
+
+.pcv2-history-header .pcv2-history-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+    font-weight: 600;
+    color: #ccc;
+}
+
+.pcv2-history-header .pcv2-history-tail {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-weight: 600;
+    color: #ccc;
+}

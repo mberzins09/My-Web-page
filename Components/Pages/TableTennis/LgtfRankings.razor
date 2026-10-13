@@ -192,12 +192,20 @@ else
 
             <button class="btn btn-sm btn-outline-primary" @onclick="NextPage"
                     disabled="@(currentPage >= totalPages)">Next →</button>
+
+            <form class="d-flex align-items-center gap-1 ms-2" @onsubmit="GoToTypedPage">
+                <label class="small text-muted mb-0">Go to page:</label>
+                <input type="number" class="form-control form-control-sm" style="width:72px"
+                       min="1" max="@(totalPages + 1)" @bind="typedPage" @bind:event="oninput" />
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Go</button>
+            </form>
         </div>
     }
 }
 
 @code {
     const int PageSize = 100;
+    int typedPage = 1;
 
     List<PlayerDbEntry> players     = new();
     int  totalCount   = 0;
@@ -318,9 +326,17 @@ else
         catch (TaskCanceledException) { }
     }
 
-    async Task PrevPage() { if (currentPage > 0)          { currentPage--; await LoadAsync(); } }
-    async Task NextPage() { if (currentPage < totalPages) { currentPage++; await LoadAsync(); } }
-    async Task GoToPage(int pg)                            { currentPage = pg; await LoadAsync(); }
+    async Task PrevPage() { if (currentPage > 0)          { currentPage--; typedPage = currentPage + 1; await LoadAsync(); } }
+    async Task NextPage() { if (currentPage < totalPages) { currentPage++; typedPage = currentPage + 1; await LoadAsync(); } }
+    async Task GoToPage(int pg)                            { currentPage = pg; typedPage = pg + 1; await LoadAsync(); }
+
+    async Task GoToTypedPage()
+    {
+        int clamped = Math.Clamp(typedPage, 1, totalPages + 1);
+        typedPage = clamped;
+        currentPage = clamped - 1;
+        await LoadAsync();
+    }
 
     // p.Id is the PlayerDB id - the same id the games table uses. (This used to call
     // GetOrCreatePlayer, which inserted a new duplicate PlayerDB row on every click.)
