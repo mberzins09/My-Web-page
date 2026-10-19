@@ -1,0 +1,98 @@
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+
+@* Round-robin group table in the style of Prognozes/Groups.razor: results matrix + Pts / ± / Place. *@
+
+<h5 class="mt-4">@Title</h5>
+
+@if (Members.Count == 0)
+{
+    <p class="text-muted">No players in this group.</p>
+}
+else
+{
+    var sorted = TtLocalService.BuildStandings(Members, Games);
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-sm group-table mb-0">
+            <thead>
+                <tr class="table-primary">
+                    <th class="team-name-col"></th>
+                    @for (int h = 0; h < sorted.Count; h++)
+                    {
+                        <th @key="sorted[h].Player.Id" class="text-center team-col" title="@sorted[h].Player.FullName">@(h + 1)</th>
+                    }
+                    <th class="text-center stat-col" title="Table points (win 2, loss 1)">Pts</th>
+                    <th class="text-center stat-col" title="Set difference">±</th>
+                    <th class="text-center stat-col">Place</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < sorted.Count; i++)
+                {
+                    var row = sorted[i];
+                    <tr @key="row.Player.Id" class="table-dark">
+                        <td class="team-name-col">
+                            <strong class="std-row-label" title="@row.Player.FullName">
+                                <span class="std-row-num">@(i + 1).</span>
+                                <span class="std-row-name">@row.Player.FullName</span>
+                                @if (Qualifiers > 0 && i < Qualifiers)
+                                {
+                                    <span class="badge bg-success ms-1" title="Qualifies for the playoff">Q</span>
+                                }
+                            </strong>
+                        </td>
+                        @foreach (var col in sorted)
+                        {
+                            @if (row.Player.Id == col.Player.Id)
+                            {
+                                <td @key="col.Player.Id" class="black-cell"></td>
+                            }
+                            else
+                            {
+                                <td @key="col.Player.Id" class="text-center score-cell">
+                                    @foreach (var g in PairGames(row.Player.Id, col.Player.Id))
+                                    {
+                                        bool rowIsP1 = g.Player1Id == row.Player.Id;
+                                        int mine = rowIsP1 ? g.Player1Sets!.Value : g.Player2Sets!.Value;
+                                        int opp  = rowIsP1 ? g.Player2Sets!.Value : g.Player1Sets!.Value;
+                                        <div @key="g.Id" title="@SetPointsText(g, rowIsP1)">@mine:@opp</div>
+                                    }
+                                </td>
+                            }
+                        }
+                        <td class="text-center stat-col"><strong>@row.Points</strong></td>
+                        <td class="text-center stat-col @DiffClass(row.SetDiff)">@(row.SetDiff > 0 ? "+" : "")@row.SetDiff</td>
+                        <td class="text-center stat-col"><strong>@(i + 1)</strong></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted mt-2" style="font-size:.8rem">
+        Sorted by: Points (win 2, loss 1) → Set difference → Sets won → Point difference.
+        Hover a result to see the set points (if they were recorded).
+    </p>
+}
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public List<PlayerTT> Members { get; set; } = new();
+    [Parameter] public List<GameTT> Games { get; set; } = new();
+
+    /// <summary>How many top places get the "Q" (qualified) badge. 0 = no badge.</summary>
+    [Parameter] public int Qualifiers { get; set; }
+
+    IEnumerable<GameTT> PairGames(int a, int b) =>
+        Games.Where(g => g.IsFinished &&
+            ((g.Player1Id == a && g.Player2Id == b) || (g.Player1Id == b && g.Player2Id == a)));
+
+    static string SetPointsText(GameTT g, bool rowIsP1)
+    {
+        if (g.Sets.Count == 0) return "Set points not recorded";
+        return string.Join(", ", g.Sets.OrderBy(s => s.SetNumber)
+            .Select(s => rowIsP1 ? $"{s.Player1Points}:{s.Player2Points}" : $"{s.Player2Points}:{s.Player1Points}"));
+    }
+
+    static string DiffClass(int d) => d > 0 ? "text-success" : d < 0 ? "text-danger" : "";
+}

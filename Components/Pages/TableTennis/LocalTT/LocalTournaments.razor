@@ -1,0 +1,79 @@
+@page "/tt-local"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject TtLocalService Svc
+
+<PageTitle>Local tournaments</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h3 class="mb-0">🏓 Local tournaments</h3>
+    <AuthorizeView Roles="Admin">
+        <Authorized>
+            <div class="d-flex flex-wrap gap-2">
+                <a class="btn btn-primary btn-sm" href="/tt-local/admin/tournament/new">➕ New tournament</a>
+                <a class="btn btn-outline-secondary btn-sm" href="/tt-local/admin/seasons">📅 Seasons</a>
+                <a class="btn btn-outline-secondary btn-sm" href="/tt-local/admin/players">👤 Players</a>
+            </div>
+        </Authorized>
+    </AuthorizeView>
+</div>
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (_tournaments.Count == 0)
+{
+    <p class="text-muted">No tournaments yet.</p>
+}
+else
+{
+    @foreach (var grp in _groups)
+    {
+        <h5 class="mt-4">@grp.Title</h5>
+        <div class="list-group mb-2">
+            @foreach (var t in grp.Items)
+            {
+                <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                   href="/tt-local/tournament/@t.Id">
+                    <span>
+                        <strong>@t.TournamentName</strong>
+                        <span class="text-muted ms-2 small">@t.TournamentDateTime.ToString("dd.MM.yyyy HH:mm")</span>
+                    </span>
+                    <span>
+                        <span class="badge bg-secondary">@TtLocalLabels.Format(t.Format)</span>
+                        <span class="badge bg-light text-dark border">@t.Games.Count game(s)</span>
+                    </span>
+                </a>
+            }
+        </div>
+    }
+}
+
+@code {
+    record Grp(string Title, List<TournamentTT> Items);
+
+    bool _loading = true;
+    List<TournamentTT> _tournaments = new();
+    List<Grp> _groups = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tournaments = await Svc.GetTournamentsAsync();
+
+        // Newest season first, tournaments without a season at the end.
+        _groups = _tournaments
+            .Where(t => t.TournamentSeason != null)
+            .GroupBy(t => t.TournamentSeason!)
+            .OrderByDescending(g => g.Key.Id)
+            .Select(g => new Grp("📅 " + g.Key.Name, g.OrderByDescending(t => t.TournamentDateTime).ToList()))
+            .ToList();
+
+        var noSeason = _tournaments.Where(t => t.TournamentSeason == null).ToList();
+        if (noSeason.Count > 0)
+            _groups.Add(new Grp(_groups.Count > 0 ? "No season" : "Tournaments", noSeason));
+
+        _loading = false;
+    }
+}

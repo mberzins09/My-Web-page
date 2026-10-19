@@ -29,6 +29,14 @@ namespace MartinsWeb.Data
         public DbSet<Country> Countries { get; set; } = null!;
         public DbSet<CountryRanking> CountryRankings { get; set; } = null!;
 
+        // Local table tennis tournaments
+        public DbSet<PlayerTT> PlayersTT { get; set; } = null!;
+        public DbSet<TournamentSeason> TournamentSeasons { get; set; } = null!;
+        public DbSet<TournamentTT> TournamentsTT { get; set; } = null!;
+        public DbSet<TournamentPlayerTT> TournamentPlayersTT { get; set; } = null!;
+        public DbSet<GameTT> GamesTT { get; set; } = null!;
+        public DbSet<GameSetTT> GameSetsTT { get; set; } = null!;
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -127,6 +135,62 @@ namespace MartinsWeb.Data
 
                 // One ranking per country/sport/year
                 e.HasIndex(r => new { r.CountryId, r.Sport, r.Year }).IsUnique();
+            });
+
+            // ── Local table tennis ───────────────────────────────────────────
+            modelBuilder.Entity<PlayerTT>(e =>
+            {
+                e.ToTable("PlayersTT");
+                e.Property(p => p.UserId).HasColumnName("User_Id");
+                e.HasIndex(p => p.UserId).IsUnique();
+                e.HasOne(p => p.User).WithMany().HasForeignKey(p => p.UserId)
+                 .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TournamentSeason>(e => e.ToTable("TournamentSeason"));
+
+            modelBuilder.Entity<TournamentTT>(e =>
+            {
+                e.ToTable("TournamentsTT");
+                e.Property(t => t.TournamentSeasonId).HasColumnName("TournamentSeason_Id");
+                e.Property(t => t.Format).HasConversion<string>();
+                e.HasOne(t => t.TournamentSeason).WithMany(s => s.Tournaments)
+                 .HasForeignKey(t => t.TournamentSeasonId).IsRequired(false)
+                 .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            modelBuilder.Entity<TournamentPlayerTT>(e =>
+            {
+                e.ToTable("TournamentPlayersTT");
+                e.HasIndex(p => new { p.TournamentId, p.PlayerId }).IsUnique();
+                e.HasOne(p => p.Tournament).WithMany(t => t.Participants)
+                 .HasForeignKey(p => p.TournamentId).OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(p => p.Player).WithMany()
+                 .HasForeignKey(p => p.PlayerId).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<GameTT>(e =>
+            {
+                e.ToTable("GamesTT");
+                e.Property(g => g.Player1Id).HasColumnName("player1_id");
+                e.Property(g => g.Player2Id).HasColumnName("player2_id");
+                e.Property(g => g.Player1Sets).HasColumnName("player1_sets");
+                e.Property(g => g.Player2Sets).HasColumnName("player2_sets");
+                e.Property(g => g.TournamentId).HasColumnName("tournament_id");
+                e.HasOne(g => g.Tournament).WithMany(t => t.Games)
+                 .HasForeignKey(g => g.TournamentId).OnDelete(DeleteBehavior.Cascade);
+                e.HasOne(g => g.Player1).WithMany()
+                 .HasForeignKey(g => g.Player1Id).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(g => g.Player2).WithMany()
+                 .HasForeignKey(g => g.Player2Id).OnDelete(DeleteBehavior.Restrict);
+            });
+
+            modelBuilder.Entity<GameSetTT>(e =>
+            {
+                e.ToTable("GameSetsTT");
+                e.HasIndex(s => new { s.GameId, s.SetNumber }).IsUnique();
+                e.HasOne(s => s.Game).WithMany(g => g.Sets)
+                 .HasForeignKey(s => s.GameId).OnDelete(DeleteBehavior.Cascade);
             });
         }
     }

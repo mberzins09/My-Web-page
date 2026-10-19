@@ -1,0 +1,129 @@
+@page "/tt-local/admin/players"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject TtLocalService Svc
+
+<PageTitle>Local TT — Players</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item active">Players</li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">👤 Players</h4>
+    @if (!_editing)
+    {
+        <button class="btn btn-primary btn-sm" @onclick="StartCreate">➕ New player</button>
+    }
+</div>
+
+@if (_editing)
+{
+    <div class="card mb-3" style="max-width:640px">
+        <div class="card-body">
+            <h5>@(_editId == null ? "New player" : "Edit player")</h5>
+            <div class="row g-2">
+                <div class="col-sm-6">
+                    <label class="form-label">Name</label>
+                    <input class="form-control" @bind="_name" @bind:event="oninput" />
+                </div>
+                <div class="col-sm-6">
+                    <label class="form-label">Surname</label>
+                    <input class="form-control" @bind="_surname" @bind:event="oninput" />
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Linked website user <span class="text-muted">(optional)</span></label>
+                    <select class="form-select" @bind="_userId">
+                        <option value="0">— none —</option>
+                        @foreach (var u in _users)
+                        {
+                            <option value="@u.Id">@u.Username (@u.Email)</option>
+                        }
+                    </select>
+                </div>
+            </div>
+            @if (_error != null) { <div class="alert alert-danger mt-3 mb-0">@_error</div> }
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn btn-outline-secondary" @onclick="Cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_message != null) { <div class="alert alert-danger" style="max-width:640px">@_message</div> }
+
+@if (_players.Count == 0)
+{
+    <p class="text-muted">No players yet.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm align-middle" style="max-width:800px">
+            <thead><tr><th>Name</th><th>Surname</th><th>Website user</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var p in _players)
+                {
+                    <tr>
+                        <td>@p.Name</td>
+                        <td>@p.Surname</td>
+                        <td>@(p.User?.Username ?? "—")</td>
+                        <td class="text-end text-nowrap">
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => StartEdit(p)">✏️</button>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteAsync(p)">🗑</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    List<PlayerTT> _players = new();
+    List<User> _users = new();
+    bool _editing;
+    int? _editId;
+    string _name = "", _surname = "";
+    int _userId;
+    string? _error, _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await Svc.GetUsersAsync();
+        await LoadAsync();
+    }
+
+    async Task LoadAsync() => _players = await Svc.GetPlayersAsync();
+
+    void StartCreate() { _editing = true; _editId = null; _name = _surname = ""; _userId = 0; _error = _message = null; }
+
+    void StartEdit(PlayerTT p)
+    {
+        _editing = true; _editId = p.Id; _name = p.Name; _surname = p.Surname;
+        _userId = p.UserId ?? 0; _error = _message = null;
+    }
+
+    void Cancel() { _editing = false; _error = null; }
+
+    async Task SaveAsync()
+    {
+        _error = await Svc.SavePlayerAsync(_editId, _name, _surname, _userId == 0 ? null : _userId);
+        if (_error != null) return;
+        _editing = false;
+        await LoadAsync();
+    }
+
+    async Task DeleteAsync(PlayerTT p)
+    {
+        _message = await Svc.DeletePlayerAsync(p.Id);
+        await LoadAsync();
+    }
+}

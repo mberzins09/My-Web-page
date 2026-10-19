@@ -1,0 +1,175 @@
+@page "/tt-local/tournament/{TournamentId:int}"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@inject TtLocalService Svc
+
+<PageTitle>@(_t?.TournamentName ?? "Tournament")</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item active">@(_t?.TournamentName ?? "...")</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (_t == null)
+{
+    <div class="alert alert-warning">Tournament not found.</div>
+}
+else
+{
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h3 class="mb-1">@_t.TournamentName</h3>
+            <div class="text-muted">
+                @_t.TournamentDateTime.ToString("dd.MM.yyyy HH:mm")
+                · <span class="badge bg-secondary">@TtLocalLabels.Format(_t.Format)</span>
+                @if (_t.TournamentSeason != null)
+                {
+                    <span class="badge bg-info text-dark">📅 @_t.TournamentSeason.Name</span>
+                }
+            </div>
+            <div class="text-muted small mt-1">
+                @if (_t.HasGroups) { <span>Group games: @TtLocalLabels.SetsToWin(_t.SetsToWinGroup).</span> }
+                @if (_t.HasPlayoff) { <span> Playoff games: @TtLocalLabels.SetsToWin(_t.SetsToWinPlayoff).</span> }
+            </div>
+        </div>
+        <AuthorizeView Roles="Admin">
+            <Authorized>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-primary btn-sm" href="/tt-local/admin/tournament/@_t.Id/participants">👥 Participants</a>
+                    <a class="btn btn-outline-primary btn-sm" href="/tt-local/admin/tournament/@_t.Id/games">🎯 Games</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="/tt-local/admin/tournament/@_t.Id">✏️ Edit</a>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+
+    @if (_champion != null)
+    {
+        <div class="alert alert-success py-2" style="max-width:420px">🏆 Winner: <strong>@_champion.FullName</strong></div>
+    }
+
+    @if (_participants.Count == 0)
+    {
+        <p class="text-muted">No participants have been added yet.</p>
+    }
+
+    @* ── Group tables ─────────────────────────────────────────────── *@
+    @if (_t.HasGroups && _participants.Count > 0)
+    {
+        @foreach (var grp in _groups)
+        {
+            <GroupTable Title="@($"Group {TtLocalLabels.GroupName(grp.Key)}")"
+                        Members="grp.Value"
+                        Games="_groupGames.Where(g => g.GroupNumber == grp.Key).ToList()"
+                        Qualifiers="@(_t.HasPlayoff ? _t.QualifiersPerGroup : 0)" />
+        }
+        @if (_unassigned.Count > 0)
+        {
+            <p class="text-muted mt-3">Not in a group yet: @string.Join(", ", _unassigned.Select(p => p.FullName))</p>
+        }
+    }
+
+    @* ── Playoff bracket ──────────────────────────────────────────── *@
+    @if (_t.HasPlayoff)
+    {
+        <h5 class="mt-4">Playoff</h5>
+        @if (_playoffGames.Count > 0)
+        {
+            <BracketView Games="_playoffGames" />
+        }
+        else if (_t.Format == TtTournamentFormat.PlayoffOnly && _participants.Count > 0)
+        {
+            <p class="text-muted">The bracket has not been drawn yet. Participants: @string.Join(", ", _participants.Select(p => p.Player!.FullName))</p>
+        }
+        else
+        {
+            <p class="text-muted">The playoff starts after the group stage.</p>
+        }
+    }
+
+    @* ── Game list with set points ────────────────────────────────── *@
+    @if (_games.Any(g => g.IsFinished))
+    {
+        <h5 class="mt-4">Results</h5>
+        <div class="list-group" style="max-width:760px">
+            @foreach (var g in _finishedGames)
+            {
+                <div class="list-group-item" @key="g.Id">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="@(g.Player1Sets > g.Player2Sets ? "fw-bold" : "")">@g.Player1?.FullName</span>
+                        <span class="badge bg-dark fs-6">@g.Player1Sets : @g.Player2Sets</span>
+                        <span class="@(g.Player2Sets > g.Player1Sets ? "fw-bold" : "")">@g.Player2?.FullName</span>
+                    </div>
+                    <div class="text-muted small d-flex justify-content-between">
+                        <span>@GameLabel(g)</span>
+                        @if (g.Sets.Count > 0)
+                        {
+                            <span>@string.Join(", ", g.Sets.OrderBy(s => s.SetNumber).Select(s => $"{s.Player1Points}:{s.Player2Points}"))</span>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+
+    bool _loading = true;
+    TournamentTT? _t;
+    List<TournamentPlayerTT> _participants = new();
+    List<GameTT> _games = new(), _groupGames = new(), _playoffGames = new();
+    Dictionary<int, List<PlayerTT>> _groups = new();
+    List<PlayerTT> _unassigned = new();
+    PlayerTT? _champion;
+
+    IEnumerable<GameTT> _finishedGames => _games.Where(x => x.IsFinished)
+        .OrderBy(x => x.Stage == TtLocalLabels.StagePlayoff ? 1 : 0)
+        .ThenBy(x => x.GroupNumber).ThenBy(x => x.Round).ThenBy(x => x.Position);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _t = await Svc.GetTournamentFullAsync(TournamentId);
+        if (_t != null)
+        {
+            _participants = _t.Participants.ToList();
+            _games        = _t.Games.ToList();
+            _groupGames   = _games.Where(g => g.Stage == TtLocalLabels.StageGroup).ToList();
+            _playoffGames = _games.Where(g => g.Stage == TtLocalLabels.StagePlayoff).ToList();
+
+            // show every group 1..GroupCount, even an empty one, plus any group number that has players
+            var byGroup = _participants.Where(p => p.GroupNumber != null)
+                                       .GroupBy(p => p.GroupNumber!.Value)
+                                       .ToDictionary(g => g.Key, g => g.Select(p => p.Player!).ToList());
+            _groups = new Dictionary<int, List<PlayerTT>>();
+            int max = Math.Max(_t.GroupCount, byGroup.Count == 0 ? 0 : byGroup.Keys.Max());
+            for (int i = 1; i <= max; i++)
+                if (byGroup.TryGetValue(i, out var list)) _groups[i] = list;
+            _unassigned = _participants.Where(p => p.GroupNumber == null).Select(p => p.Player!).ToList();
+
+            // winner = winner of the final (or, for a group-only tournament, nobody is declared)
+            if (_playoffGames.Count > 0)
+            {
+                int last = _playoffGames.Max(g => g.Round ?? 0);
+                var final = _playoffGames.FirstOrDefault(g => g.Round == last);
+                if (final is { IsFinished: true })
+                    _champion = final.WinnerId == final.Player1Id ? final.Player1 : final.Player2;
+            }
+            else _champion = null;
+        }
+        _loading = false;
+    }
+
+    string GameLabel(GameTT g) => g.Stage == TtLocalLabels.StagePlayoff
+        ? TtLocalLabels.PlayoffRoundName(g.Round ?? 1, _playoffGames.Max(x => x.Round ?? 1))
+        : $"Group {TtLocalLabels.GroupName(g.GroupNumber ?? 1)}" + (g.Round != null ? $" · round {g.Round}" : "");
+}

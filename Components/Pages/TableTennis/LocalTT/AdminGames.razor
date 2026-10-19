@@ -1,0 +1,379 @@
+@page "/tt-local/admin/tournament/{TournamentId:int}/games"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject TtLocalService Svc
+
+<PageTitle>Games — @(_t?.TournamentName)</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item"><a href="/tt-local/tournament/@TournamentId">@(_t?.TournamentName ?? "Tournament")</a></li>
+        <li class="breadcrumb-item active">Games</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (_t == null)
+{
+    <div class="alert alert-warning">Tournament not found.</div>
+}
+else
+{
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h4 class="mb-0">🎯 Games — @_t.TournamentName</h4>
+        <a class="btn btn-outline-primary btn-sm" href="/tt-local/admin/tournament/@_t.Id/participants">👥 Participants</a>
+    </div>
+    <div class="text-muted small mb-3">
+        @if (_t.HasGroups) { <span>Group games: @TtLocalLabels.SetsToWin(_t.SetsToWinGroup).</span> }
+        @if (_t.HasPlayoff) { <span> Playoff games: @TtLocalLabels.SetsToWin(_t.SetsToWinPlayoff).</span> }
+    </div>
+
+    @if (_message != null)
+    {
+        <div class="alert @(_messageIsError ? "alert-danger" : "alert-success") py-2" style="max-width:760px">@_message</div>
+    }
+
+    @* ── actions ── *@
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        @if (_t.HasGroups)
+        {
+            <button class="btn btn-primary btn-sm" @onclick="GenerateGroupGamesAsync">📋 Generate group schedule</button>
+            <button class="btn btn-outline-primary btn-sm" @onclick="StartNewGroupGame">➕ Extra group game</button>
+        }
+        @if (_t.HasPlayoff)
+        {
+            <button class="btn btn-warning btn-sm" @onclick="GeneratePlayoffAsync">🏆 Generate playoff bracket</button>
+        }
+    </div>
+
+    @* ── new group game ── *@
+    @if (_newGame)
+    {
+        <div class="card mb-3" style="max-width:640px">
+            <div class="card-body">
+                <h5>New group game</h5>
+                <div class="row g-2">
+                    <div class="col-sm-6">
+                        <select class="form-select" @bind="_newP1">
+                            <option value="0">— player 1 —</option>
+                            @foreach (var p in _participants) { <option value="@p.PlayerId">@p.Player?.FullName (@GroupLabel(p.GroupNumber))</option> }
+                        </select>
+                    </div>
+                    <div class="col-sm-6">
+                        <select class="form-select" @bind="_newP2">
+                            <option value="0">— player 2 —</option>
+                            @foreach (var p in _participants) { <option value="@p.PlayerId">@p.Player?.FullName (@GroupLabel(p.GroupNumber))</option> }
+                        </select>
+                    </div>
+                </div>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-primary" @onclick="CreateGroupGameAsync">Create</button>
+                    <button class="btn btn-outline-secondary" @onclick="() => _newGame = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ── result editor ── *@
+    @if (_editing != null)
+    {
+        <div class="card mb-3 border-primary" style="max-width:640px">
+            <div class="card-body">
+                <h5 class="mb-1">Result</h5>
+                <div class="text-muted small mb-3">
+                    @GameTitle(_editing) · @TtLocalLabels.SetsToWin(EditingToWin)
+                </div>
+
+                <div class="fw-semibold mb-2">
+                    @_editing.Player1?.FullName <span class="text-muted">vs</span> @_editing.Player2?.FullName
+                </div>
+
+                <div class="mb-1 small text-muted">Set points <span>(optional - leave empty to record only the sets)</span></div>
+                @for (int i = 0; i < _setInputs.Count; i++)
+                {
+                    int idx = i;
+                    <div class="d-flex align-items-center gap-2 mb-1" @key="idx">
+                        <span style="width:56px">Set @(idx + 1)</span>
+                        <input type="number" min="0" class="form-control form-control-sm" style="width:80px"
+                               @bind="_setInputs[idx].P1" @bind:event="oninput" />
+                        <span>:</span>
+                        <input type="number" min="0" class="form-control form-control-sm" style="width:80px"
+                               @bind="_setInputs[idx].P2" @bind:event="oninput" />
+                    </div>
+                }
+
+                <div class="mt-3">
+                    @if (AnySetPoints)
+                    {
+                        <div>Sets won (from set points): <strong>@DerivedP1 : @DerivedP2</strong></div>
+                    }
+                    else
+                    {
+                        <div class="d-flex align-items-center gap-2">
+                            <span>Sets won:</span>
+                            <input type="number" min="0" class="form-control form-control-sm" style="width:80px" @bind="_manualP1" />
+                            <span>:</span>
+                            <input type="number" min="0" class="form-control form-control-sm" style="width:80px" @bind="_manualP2" />
+                        </div>
+                    }
+                </div>
+
+                @if (_editError != null) { <div class="alert alert-danger mt-3 mb-0">@_editError</div> }
+
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn btn-primary" @onclick="SaveResultAsync">Save result</button>
+                    <button class="btn btn-outline-secondary" @onclick="() => _editing = null">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @* ── group games ── *@
+    @if (_t.HasGroups)
+    {
+        <h5 class="mt-4">Group games</h5>
+        @if (_groupGames.Count == 0)
+        {
+            <p class="text-muted">No group games yet. Add participants, assign groups, then generate the schedule.</p>
+        }
+        else
+        {
+            @foreach (var grp in _groupGames.GroupBy(g => g.GroupNumber ?? 0).OrderBy(g => g.Key))
+            {
+                <div class="fw-semibold mt-3">Group @TtLocalLabels.GroupName(grp.Key)</div>
+                @GamesTable(grp.OrderBy(g => g.Round).ThenBy(g => g.Id).ToList(), true)
+            }
+            <div class="mt-2">
+                @if (_confirm == "group")
+                {
+                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteStageAsync(TtLocalLabels.StageGroup)">Yes, delete all group games</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _confirm = null">No</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-danger btn-sm" @onclick='() => _confirm = "group"'>🗑 Delete all group games</button>
+                }
+            </div>
+        }
+    }
+
+    @* ── playoff games ── *@
+    @if (_t.HasPlayoff)
+    {
+        <h5 class="mt-4">Playoff games</h5>
+        @if (_playoffGames.Count == 0)
+        {
+            <p class="text-muted">The bracket has not been generated yet.</p>
+        }
+        else
+        {
+            int total = _playoffGames.Max(g => g.Round ?? 1);
+            @foreach (var rnd in _playoffGames.GroupBy(g => g.Round ?? 1).OrderBy(g => g.Key))
+            {
+                <div class="fw-semibold mt-3">@TtLocalLabels.PlayoffRoundName(rnd.Key, total)</div>
+                @GamesTable(rnd.OrderBy(g => g.Position).ToList(), false)
+            }
+            <div class="mt-3"><BracketView Games="_playoffGames" /></div>
+            <div class="mt-2">
+                @if (_confirm == "playoff")
+                {
+                    <button class="btn btn-danger btn-sm" @onclick="() => DeleteStageAsync(TtLocalLabels.StagePlayoff)">Yes, delete the playoff</button>
+                    <button class="btn btn-outline-secondary btn-sm" @onclick="() => _confirm = null">No</button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-danger btn-sm" @onclick='() => _confirm = "playoff"'>🗑 Delete playoff</button>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    class SetInput { public int? P1 { get; set; } public int? P2 { get; set; } }
+
+    [Parameter] public int TournamentId { get; set; }
+
+    bool _loading = true;
+    TournamentTT? _t;
+    List<GameTT> _groupGames = new(), _playoffGames = new();
+    List<TournamentPlayerTT> _participants = new();
+
+    string? _message; bool _messageIsError;
+    string? _confirm;
+
+    // new group game
+    bool _newGame; int _newP1, _newP2;
+
+    // result editor
+    GameTT? _editing;
+    List<SetInput> _setInputs = new();
+    int? _manualP1, _manualP2;
+    string? _editError;
+
+    int EditingToWin => _editing == null ? 0
+        : _editing.Stage == TtLocalLabels.StagePlayoff ? _t!.SetsToWinPlayoff : _t!.SetsToWinGroup;
+
+    bool AnySetPoints => _setInputs.Any(s => s.P1 != null || s.P2 != null);
+    int DerivedP1 => _setInputs.Count(s => s.P1 != null && s.P2 != null && s.P1 > s.P2);
+    int DerivedP2 => _setInputs.Count(s => s.P1 != null && s.P2 != null && s.P2 > s.P1);
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _t = await Svc.GetTournamentAsync(TournamentId);
+        if (_t != null)
+        {
+            _participants = await Svc.GetParticipantsAsync(TournamentId);
+            await LoadGamesAsync();
+        }
+        _loading = false;
+    }
+
+    async Task LoadGamesAsync()
+    {
+        var all = await Svc.GetGamesAsync(TournamentId);
+        _groupGames   = all.Where(g => g.Stage == TtLocalLabels.StageGroup).ToList();
+        _playoffGames = all.Where(g => g.Stage == TtLocalLabels.StagePlayoff).ToList();
+    }
+
+    void Info(string text)  { _message = text; _messageIsError = false; }
+    void Error(string text) { _message = text; _messageIsError = true; }
+    void Report(string? error, string okText) { if (error != null) Error(error); else Info(okText); }
+
+    static string GroupLabel(int? g) => g == null ? "no group" : "Group " + TtLocalLabels.GroupName(g.Value);
+
+    string GameTitle(GameTT g) => g.Stage == TtLocalLabels.StagePlayoff
+        ? TtLocalLabels.PlayoffRoundName(g.Round ?? 1, _playoffGames.Max(x => x.Round ?? 1))
+        : $"Group {TtLocalLabels.GroupName(g.GroupNumber ?? 1)}";
+
+    // ── actions ───────────────────────────────────────────────────────────
+    async Task GenerateGroupGamesAsync()
+    {
+        var (error, created) = await Svc.GenerateGroupGamesAsync(TournamentId);
+        Report(error, created == 0 ? "Nothing new to create - all games already exist." : $"Created {created} group game(s).");
+        await LoadGamesAsync();
+    }
+
+    async Task GeneratePlayoffAsync()
+    {
+        var error = await Svc.GeneratePlayoffAsync(TournamentId);
+        Report(error, "Playoff bracket generated.");
+        await LoadGamesAsync();
+    }
+
+    void StartNewGroupGame() { _newGame = true; _newP1 = _newP2 = 0; _message = null; }
+
+    async Task CreateGroupGameAsync()
+    {
+        var error = await Svc.CreateGroupGameAsync(TournamentId, _newP1, _newP2);
+        Report(error, "Game created.");
+        if (error == null) _newGame = false;
+        await LoadGamesAsync();
+    }
+
+    async Task DeleteStageAsync(string stage)
+    {
+        var error = await Svc.DeleteStageGamesAsync(TournamentId, stage);
+        Report(error, "Deleted.");
+        _confirm = null;
+        _editing = null;
+        await LoadGamesAsync();
+    }
+
+    async Task DeleteGameAsync(GameTT g)
+    {
+        var error = await Svc.DeleteGameAsync(g.Id);
+        Report(error, "Game deleted.");
+        await LoadGamesAsync();
+    }
+
+    async Task ClearResultAsync(GameTT g)
+    {
+        var error = await Svc.ClearResultAsync(g.Id);
+        Report(error, "Result cleared.");
+        if (_editing?.Id == g.Id) _editing = null;
+        await LoadGamesAsync();
+    }
+
+    void StartEdit(GameTT g)
+    {
+        _editing = g; _editError = null; _message = null; _newGame = false;
+        int toWin = g.Stage == TtLocalLabels.StagePlayoff ? _t!.SetsToWinPlayoff : _t!.SetsToWinGroup;
+        int maxSets = toWin * 2 - 1;
+
+        _setInputs = new List<SetInput>();
+        var existing = g.Sets.OrderBy(s => s.SetNumber).ToList();
+        for (int i = 0; i < maxSets; i++)
+        {
+            _setInputs.Add(i < existing.Count
+                ? new SetInput { P1 = existing[i].Player1Points, P2 = existing[i].Player2Points }
+                : new SetInput());
+        }
+        _manualP1 = g.Player1Sets; _manualP2 = g.Player2Sets;
+    }
+
+    async Task SaveResultAsync()
+    {
+        if (_editing == null) return;
+        var points = _setInputs.Select(s => (s.P1, s.P2)).ToList();
+        _editError = await Svc.SaveResultAsync(_editing.Id, _manualP1, _manualP2, points);
+        if (_editError != null) return;
+        _editing = null;
+        Info("Result saved.");
+        await LoadGamesAsync();
+    }
+
+    // ── shared table of games ─────────────────────────────────────────────
+    RenderFragment GamesTable(List<GameTT> games, bool canDelete) => @<div class="table-responsive">
+        <table class="table table-sm align-middle" style="max-width:820px">
+            <tbody>
+                @foreach (var g in games)
+                {
+                    <tr @key="g.Id">
+                        @if (g.Round != null && !(g.Stage == TtLocalLabels.StagePlayoff))
+                        {
+                            <td class="text-muted small" style="width:60px">R@(g.Round)</td>
+                        }
+                        <td class="@(g.IsFinished && g.Player1Sets > g.Player2Sets ? "fw-bold" : "")">@(g.Player1?.FullName ?? "TBD")</td>
+                        <td class="text-center text-nowrap">
+                            @if (g.IsFinished)
+                            {
+                                <span class="badge bg-dark">@g.Player1Sets : @g.Player2Sets</span>
+                                @if (g.Sets.Count > 0)
+                                {
+                                    <div class="text-muted" style="font-size:.72rem">
+                                        @string.Join(", ", g.Sets.OrderBy(s => s.SetNumber).Select(s => $"{s.Player1Points}:{s.Player2Points}"))
+                                    </div>
+                                }
+                            }
+                            else { <span class="text-muted">–</span> }
+                        </td>
+                        <td class="@(g.IsFinished && g.Player2Sets > g.Player1Sets ? "fw-bold" : "")">@(g.Player2?.FullName ?? "TBD")</td>
+                        <td class="text-end text-nowrap">
+                            @if (g.Player1Id != null && g.Player2Id != null)
+                            {
+                                <button class="btn btn-outline-primary btn-sm" @onclick="() => StartEdit(g)">@(g.IsFinished ? "✏️ Edit" : "➕ Result")</button>
+                            }
+                            @if (g.IsFinished)
+                            {
+                                <button class="btn btn-outline-secondary btn-sm" title="Mark as not played" @onclick="() => ClearResultAsync(g)">↺</button>
+                            }
+                            @if (canDelete)
+                            {
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => DeleteGameAsync(g)">🗑</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>;
+}

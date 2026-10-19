@@ -1,0 +1,87 @@
+@using MartinsWeb.Models
+
+@* Single-elimination bracket. Pass the PLAYOFF games of a tournament (Stage = "Playoff"). *@
+
+@if (_totalRounds == 0)
+{
+    <p class="text-muted">The playoff bracket has not been generated yet.</p>
+}
+else
+{
+    <div class="bracket">
+        @for (int r = 1; r <= _totalRounds; r++)
+        {
+            int round = r;
+            int count = 1 << (_totalRounds - round);
+            <div class="round" @key="round">
+                <div class="round-title">@TtLocalLabels.PlayoffRoundName(round, _totalRounds)</div>
+                <div class="round-matches">
+                    @for (int p = 0; p < count; p++)
+                    {
+                        int pos = p;
+                        var g = Find(round, pos);
+                        <div class="match-wrap" @key="@($"{round}-{pos}")">
+                            @if (g == null)
+                            {
+                                @* round-1 slot without a game = bye: the player already sits in the round-2 game *@
+                                var byePlayer = ByePlayerName(pos);
+                                <div class="match bye">
+                                    <div class="side"><span class="name">@byePlayer</span><span>bye</span></div>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="match">
+                                    @foreach (var first in _both)
+                                    {
+                                        var player = first ? g.Player1 : g.Player2;
+                                        int? sets  = first ? g.Player1Sets : g.Player2Sets;
+                                        bool won   = g.IsFinished && g.WinnerId == (first ? g.Player1Id : g.Player2Id);
+                                        string cls = "side" + (won ? " winner" : "") + (player == null ? " tbd" : "");
+                                        <div class="@cls">
+                                            <span class="name">@(player?.FullName ?? "TBD")</span>
+                                            <span>@(sets?.ToString() ?? "")</span>
+                                        </div>
+                                    }
+                                    @if (g.Sets.Count > 0)
+                                    {
+                                        <div class="sets">@SetPointsText(g)</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public List<GameTT> Games { get; set; } = new();
+
+    static readonly bool[] _both = { true, false };
+
+    int _totalRounds;
+    Dictionary<(int, int), GameTT> _lookup = new();
+
+    protected override void OnParametersSet()
+    {
+        var playoff = Games.Where(g => g.Stage == TtLocalLabels.StagePlayoff && g.Round != null && g.Position != null).ToList();
+        _totalRounds = playoff.Count == 0 ? 0 : playoff.Max(g => g.Round!.Value);
+        _lookup = playoff.ToDictionary(g => (g.Round!.Value, g.Position!.Value));
+    }
+
+    GameTT? Find(int round, int pos) => _lookup.TryGetValue((round, pos), out var g) ? g : null;
+
+    string ByePlayerName(int pos)
+    {
+        // the player who skipped round 1 is in the next round's game, first slot for even positions
+        var next = Find(2, pos / 2);
+        var player = next == null ? null : (pos % 2 == 0 ? next.Player1 : next.Player2);
+        return player?.FullName ?? "—";
+    }
+
+    static string SetPointsText(GameTT g) =>
+        string.Join(", ", g.Sets.OrderBy(s => s.SetNumber).Select(s => $"{s.Player1Points}:{s.Player2Points}"));
+}

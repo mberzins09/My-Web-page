@@ -211,6 +211,82 @@ namespace MartinsWeb.Migrations
                     b.ToTable("Games");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.GameSetTT", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("GameId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Player1Points")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Player2Points")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SetNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GameId", "SetNumber")
+                        .IsUnique();
+
+                    b.ToTable("GameSetsTT", (string)null);
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.GameTT", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("GroupNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Player1Id")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("player1_id");
+
+                    b.Property<int?>("Player1Sets")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("player1_sets");
+
+                    b.Property<int?>("Player2Id")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("player2_id");
+
+                    b.Property<int?>("Player2Sets")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("player2_sets");
+
+                    b.Property<int?>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Round")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TournamentId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("tournament_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Player1Id");
+
+                    b.HasIndex("Player2Id");
+
+                    b.HasIndex("TournamentId");
+
+                    b.ToTable("GamesTT", (string)null);
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.GroupTeam", b =>
                 {
                     b.Property<int>("Id")
@@ -262,6 +338,32 @@ namespace MartinsWeb.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("LgtfEntries");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.PlayerTT", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Surname")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UserId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("User_Id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("PlayersTT", (string)null);
                 });
 
             modelBuilder.Entity("MartinsWeb.Models.Prediction", b =>
@@ -497,6 +599,89 @@ namespace MartinsWeb.Migrations
                     b.ToTable("TournamentGroups");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.TournamentPlayerTT", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("GroupNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PlayerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Seed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TournamentId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerId");
+
+                    b.HasIndex("TournamentId", "PlayerId")
+                        .IsUnique();
+
+                    b.ToTable("TournamentPlayersTT", (string)null);
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.TournamentSeason", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TournamentSeason", (string)null);
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.TournamentTT", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Format")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("GroupCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("QualifiersPerGroup")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SetsToWinGroup")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SetsToWinPlayoff")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("TournamentDateTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TournamentName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("TournamentSeasonId")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("TournamentSeason_Id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TournamentSeasonId");
+
+                    b.ToTable("TournamentsTT", (string)null);
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -624,6 +809,42 @@ namespace MartinsWeb.Migrations
                     b.Navigation("TournamentGroup");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.GameSetTT", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.GameTT", "Game")
+                        .WithMany("Sets")
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Game");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.GameTT", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.PlayerTT", "Player1")
+                        .WithMany()
+                        .HasForeignKey("Player1Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MartinsWeb.Models.PlayerTT", "Player2")
+                        .WithMany()
+                        .HasForeignKey("Player2Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("MartinsWeb.Models.TournamentTT", "Tournament")
+                        .WithMany("Games")
+                        .HasForeignKey("TournamentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player1");
+
+                    b.Navigation("Player2");
+
+                    b.Navigation("Tournament");
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.GroupTeam", b =>
                 {
                     b.HasOne("MartinsWeb.Models.TournamentGroup", "Group")
@@ -633,6 +854,16 @@ namespace MartinsWeb.Migrations
                         .IsRequired();
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.PlayerTT", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("MartinsWeb.Models.Prediction", b =>
@@ -701,6 +932,35 @@ namespace MartinsWeb.Migrations
                     b.Navigation("Tournament");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.TournamentPlayerTT", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.PlayerTT", "Player")
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MartinsWeb.Models.TournamentTT", "Tournament")
+                        .WithMany("Participants")
+                        .HasForeignKey("TournamentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Player");
+
+                    b.Navigation("Tournament");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.TournamentTT", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.TournamentSeason", "TournamentSeason")
+                        .WithMany("Tournaments")
+                        .HasForeignKey("TournamentSeasonId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("TournamentSeason");
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.UserGroup", b =>
                 {
                     b.HasOne("MartinsWeb.Models.Tournament", "Tournament")
@@ -741,6 +1001,11 @@ namespace MartinsWeb.Migrations
                     b.Navigation("Predictions");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.GameTT", b =>
+                {
+                    b.Navigation("Sets");
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.PredictionsHistory", b =>
                 {
                     b.Navigation("Entries");
@@ -763,6 +1028,18 @@ namespace MartinsWeb.Migrations
                     b.Navigation("Games");
 
                     b.Navigation("Teams");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.TournamentSeason", b =>
+                {
+                    b.Navigation("Tournaments");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.TournamentTT", b =>
+                {
+                    b.Navigation("Games");
+
+                    b.Navigation("Participants");
                 });
 
             modelBuilder.Entity("MartinsWeb.Models.User", b =>

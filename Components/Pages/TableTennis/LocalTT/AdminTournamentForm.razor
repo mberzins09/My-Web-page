@@ -1,0 +1,170 @@
+@page "/tt-local/admin/tournament/new"
+@page "/tt-local/admin/tournament/{TournamentId:int}"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject TtLocalService Svc
+@inject NavigationManager Nav
+
+<PageTitle>@(IsNew ? "New tournament" : "Edit tournament")</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item active">@(IsNew ? "New tournament" : "Edit tournament")</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (!IsNew && _notFound)
+{
+    <div class="alert alert-warning">Tournament not found.</div>
+}
+else
+{
+    <div class="card" style="max-width:600px">
+        <div class="card-header fw-semibold">@(IsNew ? "New tournament" : "Edit tournament")</div>
+        <div class="card-body">
+
+            <div class="mb-3">
+                <label class="form-label">Name</label>
+                <input class="form-control" @bind="_t.TournamentName" @bind:event="oninput" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Date and time</label>
+                <input type="datetime-local" class="form-control" @bind="_t.TournamentDateTime" />
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Season</label>
+                <select class="form-select" @bind="_seasonId">
+                    <option value="0">— no season —</option>
+                    @foreach (var s in _seasons)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Playing order</label>
+                <select class="form-select" @bind="_t.Format">
+                    @foreach (var f in Enum.GetValues<TtTournamentFormat>())
+                    {
+                        <option value="@f">@TtLocalLabels.Format(f)</option>
+                    }
+                </select>
+            </div>
+
+            @if (_t.HasGroups)
+            {
+                <div class="row g-2 mb-3">
+                    <div class="col-sm-6">
+                        <label class="form-label">Number of groups</label>
+                        <input type="number" min="1" max="8" class="form-control" @bind="_t.GroupCount" />
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label">Group games are played</label>
+                        <select class="form-select" @bind="_t.SetsToWinGroup">
+                            @for (int i = 1; i <= 5; i++) { <option value="@i">@TtLocalLabels.SetsToWin(i)</option> }
+                        </select>
+                    </div>
+                </div>
+            }
+
+            @if (_t.HasPlayoff)
+            {
+                <div class="row g-2 mb-3">
+                    @if (_t.Format == TtTournamentFormat.GroupStageAndPlayoff)
+                    {
+                        <div class="col-sm-6">
+                            <label class="form-label">Qualifiers per group</label>
+                            <input type="number" min="1" max="16" class="form-control" @bind="_t.QualifiersPerGroup" />
+                        </div>
+                    }
+                    <div class="col-sm-6">
+                        <label class="form-label">Playoff games are played</label>
+                        <select class="form-select" @bind="_t.SetsToWinPlayoff">
+                            @for (int i = 1; i <= 5; i++) { <option value="@i">@TtLocalLabels.SetsToWin(i)</option> }
+                        </select>
+                    </div>
+                </div>
+            }
+
+            @if (_error != null) { <div class="alert alert-danger">@_error</div> }
+
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary" @onclick="SaveAsync">@(IsNew ? "Create and add participants" : "Save")</button>
+                <a class="btn btn-outline-secondary" href="@(IsNew ? "/tt-local" : $"/tt-local/tournament/{_t.Id}")">Cancel</a>
+                @if (!IsNew)
+                {
+                    <a class="btn btn-outline-primary" href="/tt-local/admin/tournament/@_t.Id/participants">👥 Participants</a>
+                    <a class="btn btn-outline-primary" href="/tt-local/admin/tournament/@_t.Id/games">🎯 Games</a>
+                    <span class="ms-auto">
+                        @if (_confirmDelete)
+                        {
+                            <button class="btn btn-danger" @onclick="DeleteAsync">Yes, delete everything</button>
+                            <button class="btn btn-outline-secondary" @onclick="() => _confirmDelete = false">No</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-danger" @onclick="() => _confirmDelete = true">🗑 Delete</button>
+                        }
+                    </span>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public int? TournamentId { get; set; }
+
+    bool IsNew => TournamentId == null;
+
+    bool _loading = true, _notFound, _confirmDelete;
+    string? _error;
+    int _seasonId;
+    TournamentTT _t = new();
+    List<TournamentSeason> _seasons = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _seasons = await Svc.GetSeasonsAsync();
+
+        if (IsNew)
+        {
+            _t = new TournamentTT();
+            _seasonId = 0;
+        }
+        else
+        {
+            var existing = await Svc.GetTournamentAsync(TournamentId!.Value);
+            _notFound = existing == null;
+            if (existing != null) { _t = existing; _seasonId = existing.TournamentSeasonId ?? 0; }
+        }
+        _loading = false;
+    }
+
+    async Task SaveAsync()
+    {
+        _t.TournamentSeasonId = _seasonId == 0 ? null : _seasonId;
+        var (error, id) = await Svc.SaveTournamentAsync(_t);
+        _error = error;
+        if (error != null) return;
+        Nav.NavigateTo(IsNew ? $"/tt-local/admin/tournament/{id}/participants" : $"/tt-local/tournament/{id}");
+    }
+
+    async Task DeleteAsync()
+    {
+        await Svc.DeleteTournamentAsync(_t.Id);
+        Nav.NavigateTo("/tt-local");
+    }
+}
