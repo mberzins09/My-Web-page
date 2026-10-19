@@ -1,0 +1,28 @@
+.rank2-header,
+.rank2-card {
+    display: grid;
+    grid-template-columns: 36px 1fr 72px;
+    align-items: center;
+    column-gap: 8px;
+    padding: 5px 10px;
+    border-radius: 6px;
+}
+
+.rank2-header {
+    font-size: .75rem;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 2px;
+}
+
+.rank2-card {
+    background: rgba(255,255,255,.04);
+}
+
+.rank2-inactive { opacity: .5; }
+
+.rank2-place-col { text-align: right; font-weight: 600; color: #888; font-size: .82rem; }
+.rank2-points-col { text-align: right; white-space: nowrap; }
+.rank2-name { font-weight: 500; }

@@ -1,0 +1,200 @@
+@page "/tetris"
+@rendermode InteractiveServer
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@implements IAsyncDisposable
+@inject TetrisService TetrisSvc
+@inject AuthenticationStateProvider AuthProvider
+@inject IJSRuntime JS
+
+<PageTitle>Tetris</PageTitle>
+
+<div class="container py-4" style="max-width:720px">
+    <h3>🧱 Tetris</h3>
+    <p class="text-muted" style="font-size:.88rem">
+        ← → move · ↑ rotate · ↓ soft drop · Space hard drop
+    </p>
+
+    <div class="d-flex gap-4 flex-wrap">
+        <div>
+            <div class="d-flex gap-3 mb-2 flex-wrap" style="font-size:.95rem">
+                <span>Score: <strong id="tetris-score">0</strong></span>
+                <span>Lines: <strong id="tetris-lines">0</strong></span>
+                <span>Level: <strong id="tetris-level">1</strong></span>
+                <span>Time: <strong id="tetris-time">0:00</strong></span>
+            </div>
+
+            <canvas id="tetris-canvas" width="240" height="480" style="border:1px solid #444; background:#111"></canvas>
+            @if (!playing)
+            {
+                <div class="mt-2">
+                    <button class="btn btn-primary" @onclick="StartGame">▶ @(hasPlayedOnce ? "Play again" : "Start")</button>
+                </div>
+            }
+            else
+            {
+                @* On-screen controls for phones/tablets with no arrow keys. Plain onclick (not
+                   @onclick) so taps call straight into the JS game loop with no Blazor round-trip. *@
+                <div class="mt-2" style="max-width:360px; touch-action:manipulation">
+                    <div class="d-flex justify-content-center gap-2 mb-2">
+                        <button type="button" class="btn btn-outline-dark" style="width:78px; height:54px; font-size:1.3rem" onclick="tetrisRotateBtn()">⟳</button>
+                    </div>
+                    <div class="d-flex justify-content-between gap-2">
+                        <button type="button" class="btn btn-outline-dark" style="width:78px; height:54px; font-size:1.3rem" onclick="tetrisMove(-1,0)">◀</button>
+                        <button type="button" class="btn btn-outline-dark" style="width:78px; height:54px; font-size:1.3rem" onclick="tetrisMove(0,1)">▼</button>
+                        <button type="button" class="btn btn-outline-dark" style="width:78px; height:54px; font-size:1.3rem" onclick="tetrisMove(1,0)">▶</button>
+                    </div>
+                    <div class="d-flex justify-content-center mt-2">
+                        <button type="button" class="btn btn-outline-warning" style="width:252px; height:48px; font-size:1.1rem" onclick="tetrisHardDropBtn()">⤓ Drop</button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div style="min-width:220px">
+            @if (gameOverScore is int finishedScore)
+            {
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h5 class="card-title mb-1">Game over!</h5>
+                        <p class="mb-2">
+                            Score: <strong>@finishedScore</strong> &nbsp;·&nbsp;
+                            Lines: <strong>@gameOverLines</strong> &nbsp;·&nbsp;
+                            Level: <strong>@gameOverLevel</strong> &nbsp;·&nbsp;
+                            Time: <strong>@FormatDuration(gameOverSeconds)</strong>
+                        </p>
+
+                        @if (!scoreSaved)
+                        {
+                            <div class="mb-2">
+                                <label class="form-label mb-1 small">Name</label>
+                                <input class="form-control form-control-sm" maxlength="40" @bind="playerName" @bind:event="oninput" />
+                            </div>
+                            <button class="btn btn-sm btn-success" disabled="@saving" @onclick="SaveScore">
+                                @(saving ? "Saving..." : "💾 Save score")
+                            </button>
+                        }
+                        else
+                        {
+                            <div class="alert alert-success py-1 px-2 mb-0" style="font-size:.85rem">
+                                Saved! Rank #@savedRank
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <h5>🏆 High Scores</h5>
+            @if (loadingScores)
+            {
+                <p class="text-muted">Loading...</p>
+            }
+            else if (topScores.Count == 0)
+            {
+                <p class="text-muted">No scores yet - be the first!</p>
+            }
+            else
+            {
+                <table class="table table-sm">
+                    <thead><tr><th>#</th><th>Name</th><th class="text-end">Score</th><th class="text-end">Lines</th><th class="text-end">Lvl</th><th class="text-end">Time</th></tr></thead>
+                    <tbody>
+                        @for (int i = 0; i < topScores.Count; i++)
+                        {
+                            var s = topScores[i];
+                            <tr @key="s.Id">
+                                <td>@(i + 1)</td>
+                                <td>@s.PlayerName</td>
+                                <td class="text-end">@s.Score</td>
+                                <td class="text-end">@s.Lines</td>
+                                <td class="text-end">@s.Level</td>
+                                <td class="text-end">@FormatDuration(s.DurationSeconds)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    bool playing = false;
+    bool hasPlayedOnce = false;
+    int? gameOverScore;
+    int gameOverLines;
+    int gameOverSeconds;
+    int gameOverLevel;
+    bool scoreSaved = false;
+    bool saving = false;
+    int savedRank;
+    string playerName = "";
+
+    bool loadingScores = true;
+    List<TetrisScoreEntry> topScores = new();
+
+    DotNetObjectReference<Tetris>? selfRef;
+
+    static string FormatDuration(int totalSeconds) => $"{totalSeconds / 60}:{totalSeconds % 60:D2}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthProvider.GetAuthenticationStateAsync();
+        playerName = auth.User.Identity?.IsAuthenticated == true ? (auth.User.Identity.Name ?? "") : "";
+        await LoadScoresAsync();
+    }
+
+    async Task LoadScoresAsync()
+    {
+        loadingScores = true;
+        topScores = await TetrisSvc.GetTopScoresAsync(10);
+        loadingScores = false;
+    }
+
+    async Task StartGame()
+    {
+        playing = true;
+        hasPlayedOnce = true;
+        gameOverScore = null;
+        scoreSaved = false;
+        StateHasChanged();
+
+        selfRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("tetrisInit", "tetris-canvas", selfRef);
+    }
+
+    [JSInvokable]
+    public void OnGameOver(int score, int lines, int durationSeconds, int level)
+    {
+        playing = false;
+        gameOverScore = score;
+        gameOverLines = lines;
+        gameOverSeconds = durationSeconds;
+        gameOverLevel = level;
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task SaveScore()
+    {
+        if (gameOverScore is not int score) return;
+
+        saving = true;
+        StateHasChanged();
+        try
+        {
+            savedRank = await TetrisSvc.AddScoreAsync(playerName, score, gameOverLines, gameOverSeconds, gameOverLevel);
+            scoreSaved = true;
+            await LoadScoresAsync();
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("tetrisDestroy"); } catch { /* circuit may already be gone */ }
+        selfRef?.Dispose();
+    }
+}

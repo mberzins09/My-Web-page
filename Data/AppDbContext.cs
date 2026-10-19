@@ -25,6 +25,10 @@ namespace MartinsWeb.Data
         public DbSet<TeamEntry> TeamEntries { get; set; } = null!;
         public DbSet<TeamPlayerEntry> TeamPlayerEntries { get; set; } = null!;
 
+        // Valstis (countries + per-sport-year world rankings)
+        public DbSet<Country> Countries { get; set; } = null!;
+        public DbSet<CountryRanking> CountryRankings { get; set; } = null!;
+
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -111,6 +115,18 @@ namespace MartinsWeb.Data
                  .WithMany(t => t.Players)
                  .HasForeignKey(p => p.TeamEntryId)
                  .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── Valstis ─────────────────────────────────────────────────────
+            modelBuilder.Entity<CountryRanking>(e =>
+            {
+                e.HasOne(r => r.Country)
+                 .WithMany(c => c.Rankings)
+                 .HasForeignKey(r => r.CountryId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                // One ranking per country/sport/year
+                e.HasIndex(r => new { r.CountryId, r.Sport, r.Year }).IsUnique();
             });
         }
     }

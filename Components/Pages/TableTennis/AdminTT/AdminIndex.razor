@@ -7,6 +7,7 @@
 @inject LgtfAdminService AdminSvc
 @inject ForeignPointsService ForeignSvc
 @inject LgtfImportService ImportSvc
+@inject AltRankingService AltRankingSvc
 @inject NavigationManager Nav
 
 <PageTitle>Admin — Tournaments</PageTitle>
@@ -19,6 +20,39 @@
 </nav>
 
 <h4>🛠 Tournament Admin</h4>
+
+@* ── Alternative ranking (RankingEngine2, Elo-style) ─────────────────────── *@
+<div class="border rounded p-3 mb-3" style="background:rgba(25,135,84,.06)">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+        <button class="btn btn-success btn-sm" disabled="@_altBusy" @onclick="RunAltRankingAsync">
+            📈 Full rebuild of alternative ranking
+        </button>
+        @if (_altBusy)
+        {
+            <span class="spinner-border spinner-border-sm text-success"></span>
+        }
+        <span class="text-muted small">
+            Wipes the saved state and replays the entire competition history from scratch - needed for first-time setup,
+            or after a historical competition gets imported out of order. Normal imports only process new competitions
+            automatically and don't need this.
+        </span>
+    </div>
+    @if (_altLog.Count > 0)
+    {
+        @if (_altLogCount > _altLog.Count)
+        {
+            <div class="text-muted" style="font-size:.72rem">Showing the most recent @_altLog.Count of @_altLogCount line(s)...</div>
+        }
+        <div class="border rounded p-2 mt-1"
+             style="max-height:280px;overflow-y:auto;font-size:.78rem;font-family:monospace;white-space:pre-wrap;background:rgba(0,0,0,.05)">
+            @foreach (var line in _altLog) { <div>@line</div> }
+        </div>
+    }
+    @if (_altError != null)
+    {
+        <div class="alert alert-danger mt-2 mb-0">@_altError</div>
+    }
+</div>
 
 @* ── Foreign players: points from rankings1 ────────────────────────────── *@
 <div class="border rounded p-3 mb-3" style="background:rgba(13,110,253,.06)">
@@ -382,6 +416,40 @@
         }
         catch (Exception ex) { _error = $"Error: {ex.Message}"; }
         finally { _loading = false; }
+    }
+
+    private bool _altBusy = false;
+    private readonly List<string> _altLog = new();
+    private int _altLogCount = 0;   // total lines ever added, not capped - shown in the "showing last N of M" hint
+    private const int AltLogCap = 300;   // keep the DOM small on a 13-year rebuild; the service logs every competition
+    private string? _altError;
+
+    private void AddAltLogLine(string msg)
+    {
+        _altLog.Add(msg);
+        _altLogCount++;
+        if (_altLog.Count > AltLogCap) _altLog.RemoveAt(0);   // keep only the most recent lines visible
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RunAltRankingAsync()
+    {
+        _altBusy = true;
+        _altError = null;
+        _altLog.Clear();
+        StateHasChanged();
+        try
+        {
+            await AltRankingSvc.RunFullAsync(AddAltLogLine);
+        }
+        catch (Exception ex)
+        {
+            _altError = ex.Message;
+        }
+        finally
+        {
+            _altBusy = false;
+        }
     }
 
     private async Task RunForeignPointsAsync()

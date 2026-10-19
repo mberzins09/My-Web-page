@@ -104,11 +104,60 @@ namespace MartinsWeb.Migrations
                     b.ToTable("ApiTeamMappings");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.Country", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FlagEmoji")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Countries");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.CountryRanking", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CountryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Sport")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CountryId", "Sport", "Year")
+                        .IsUnique();
+
+                    b.ToTable("CountryRankings");
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.Game", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("AwayCountryIds")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("AwayFullTimeScore")
                         .HasColumnType("INTEGER");
@@ -129,6 +178,9 @@ namespace MartinsWeb.Migrations
 
                     b.Property<int?>("GroupId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("HomeCountryIds")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("HomeFullTimeScore")
                         .HasColumnType("INTEGER");
@@ -163,6 +215,9 @@ namespace MartinsWeb.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CountryId")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("GroupId")
@@ -393,6 +448,9 @@ namespace MartinsWeb.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ParticipatingCountryIds")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PointsCalculationType")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -400,6 +458,12 @@ namespace MartinsWeb.Migrations
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("SportType")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -532,6 +596,17 @@ namespace MartinsWeb.Migrations
                     b.Navigation("Tournament");
                 });
 
+            modelBuilder.Entity("MartinsWeb.Models.CountryRanking", b =>
+                {
+                    b.HasOne("MartinsWeb.Models.Country", "Country")
+                        .WithMany("Rankings")
+                        .HasForeignKey("CountryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Country");
+                });
+
             modelBuilder.Entity("MartinsWeb.Models.Game", b =>
                 {
                     b.HasOne("MartinsWeb.Models.TournamentGroup", "TournamentGroup")
@@ -654,6 +729,11 @@ namespace MartinsWeb.Migrations
                     b.Navigation("User");
 
                     b.Navigation("UserGroup");
+                });
+
+            modelBuilder.Entity("MartinsWeb.Models.Country", b =>
+                {
+                    b.Navigation("Rankings");
                 });
 
             modelBuilder.Entity("MartinsWeb.Models.Game", b =>

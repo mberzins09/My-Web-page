@@ -1,0 +1,30 @@
+/* Home team over away team, instead of "TeamA vs TeamB" squeezed onto one line. A long club name
+   truncates with an ellipsis; the "(rank)" suffix never does - see PredictionHelper.SplitTeamText,
+   which pulls it off the end before this ever sees it. */
+.pcv2-teams-2row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.pcv2-team-line {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+}
+
+.pcv2-team-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.pcv2-team-rank {
+    flex-shrink: 0;
+    font-size: .85em;
+    opacity: .8;
+    white-space: nowrap;
+}

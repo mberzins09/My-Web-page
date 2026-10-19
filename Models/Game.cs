@@ -18,6 +18,13 @@ namespace MartinsWeb.Models
         public int? HomeFullTimeScore { get; set; }
         public int? AwayFullTimeScore { get; set; }
 
+        // Playoff auto-advance: comma-separated Country.Id list. Null/empty = not tracked (a normal
+        // manually-typed team, or a legacy game from before this feature). One id = a single known
+        // team (still resolvable as a feeder for a later placeholder slot). 2+ ids = a placeholder
+        // slot not yet decided - PlayoffService fills it in once an earlier round settles it.
+        public string? HomeCountryIds { get; set; }
+        public string? AwayCountryIds { get; set; }
+
         // Set when game was auto-generated from a TournamentGroup (batch insert)
         public int? GroupId { get; set; }
         public TournamentGroup? TournamentGroup { get; set; }
