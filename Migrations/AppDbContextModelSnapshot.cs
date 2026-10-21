@@ -243,6 +243,12 @@ namespace MartinsWeb.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("Block")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ByeSide")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("GroupNumber")
                         .HasColumnType("INTEGER");
 
@@ -611,6 +617,12 @@ namespace MartinsWeb.Migrations
                     b.Property<int>("PlayerId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("PlayoffBlock")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("PlayoffSeed")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("Seed")
                         .HasColumnType("INTEGER");
 
@@ -653,6 +665,9 @@ namespace MartinsWeb.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("GroupCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PlayoffType")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("QualifiersPerGroup")

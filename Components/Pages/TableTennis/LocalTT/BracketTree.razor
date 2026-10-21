@@ -1,0 +1,107 @@
+@using MartinsWeb.Models
+
+@* One knockout tree drawn like an NBA playoff bracket: the first rounds on the outside (top half of the
+   games on the left, bottom half on the right), everything flowing towards the final in the middle. *@
+
+@if (Rounds.Count == 0)
+{
+}
+else if (Rounds.Count == 1)
+{
+    <div class="tree-scroll">
+        <div class="tree">
+            <div class="col">
+                <div class="col-title">@Title(0)</div>
+                <div class="slots"><div class="slot"><MatchCard Game="Rounds[0][0].Game" ByeName="@Rounds[0][0].ByeName" Seeds="Seeds" /></div></div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    int last = Rounds.Count - 1;
+    <div class="tree-scroll">
+        <div class="tree">
+            @* left half: the upper games of every round *@
+            @for (int r = 0; r < last; r++)
+            {
+                int round = r;
+                var all = Rounds[round];
+                int half = all.Count / 2;
+                <div class="col" @key="@($"L{round}")">
+                    <div class="col-title">@Title(round)</div>
+                    <div class="slots">
+                        @for (int i = 0; i < half; i++)
+                        {
+                            var slot = all[i];
+                            <div class="@SlotClass(round, last, i, false)" @key="i">
+                                @if (slot.Game != null || slot.ByeName != null)
+                                {
+                                    <MatchCard Game="slot.Game" ByeName="@slot.ByeName" Seeds="Seeds" />
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* the final *@
+            <div class="col final">
+                <div class="col-title">@Title(last)</div>
+                <div class="slots">
+                    <div class="slot">
+                        @if (Rounds[last][0].Game != null)
+                        {
+                            <MatchCard Game="Rounds[last][0].Game" Seeds="Seeds" />
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* right half: the lower games of every round, mirrored *@
+            @for (int r = last - 1; r >= 0; r--)
+            {
+                int round = r;
+                var all = Rounds[round];
+                int half = all.Count / 2;
+                <div class="col" @key="@($"R{round}")">
+                    <div class="col-title">@Title(round)</div>
+                    <div class="slots">
+                        @for (int i = 0; i < half; i++)
+                        {
+                            var slot = all[half + i];
+                            <div class="@SlotClass(round, last, i, true)" @key="i">
+                                @if (slot.Game != null || slot.ByeName != null)
+                                {
+                                    <MatchCard Game="slot.Game" ByeName="@slot.ByeName" Seeds="Seeds" />
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Rounds[0] = first round of this tree, top to bottom. The last round has exactly one game.</summary>
+    [Parameter] public List<List<TtBracketSlot>> Rounds { get; set; } = new();
+
+    /// <summary>Column titles, one per round.</summary>
+    [Parameter] public List<string> Titles { get; set; } = new();
+
+    [Parameter] public IReadOnlyDictionary<int, int>? Seeds { get; set; }
+
+    string Title(int round) => round < Titles.Count ? Titles[round] : "";
+
+    /// <summary>CSS classes of a slot: which connector lines it draws (see BracketTree.razor.css).</summary>
+    static string SlotClass(int round, int last, int indexInHalf, bool right)
+    {
+        var cls = "slot" + (right ? " right" : "");
+        if (round > 0) cls += " has-prev";
+        // the column next to the final is joined straight to it, other columns are joined in pairs
+        cls += round == last - 1 ? " single" : (indexInHalf % 2 == 0 ? " up" : " down");
+        return cls;
+    }
+}

@@ -54,7 +54,7 @@ else
 
             <div class="mb-3">
                 <label class="form-label">Playing order</label>
-                <select class="form-select" @bind="_t.Format">
+                <select class="form-select" @bind="_t.Format" @bind:after="NormalizePlayoffType">
                     @foreach (var f in Enum.GetValues<TtTournamentFormat>())
                     {
                         <option value="@f">@TtLocalLabels.Format(f)</option>
@@ -80,11 +80,41 @@ else
 
             @if (_t.HasPlayoff)
             {
+                <div class="mb-3">
+                    <label class="form-label">Playoff type</label>
+                    <select class="form-select" @bind="_t.PlayoffType">
+                        @foreach (var pt in Enum.GetValues<TtPlayoffType>())
+                        {
+                            @if (pt != TtPlayoffType.PlacementBlocks || _t.Format == TtTournamentFormat.GroupStageAndPlayoff)
+                            {
+                                <option value="@pt">@TtLocalLabels.PlayoffType(pt)</option>
+                            }
+                        }
+                    </select>
+                    <div class="form-text">
+                        @switch (_t.PlayoffType)
+                        {
+                            case TtPlayoffType.AllPlaces:
+                                <span>Every round splits the players: winners play for the upper places, losers for the lower ones (e.g. 16 players: places 1–8 and 9–16, then 1–4, 5–8, 9–12, 13–16 ...) until all places are decided.</span>
+                                break;
+                            case TtPlayoffType.PlacementBlocks:
+                                <span>
+                                    Nobody drops out. Places 1–@_t.QualifiersPerGroup of every group form block 1 (the top places), the next @_t.QualifiersPerGroup places block 2, and so on.
+                                    A block with 2, 4, 8, 16 ... players gets its own all-places bracket (e.g. 4 groups × top 2 = bracket for places 1–8, the next 2 = places 9–16).
+                                    Any other size (e.g. 6 players) is played as an additional group instead of a bracket with byes - games already played in the group stage are carried over.
+                                </span>
+                                break;
+                            default:
+                                <span>Classic knockout: the loser of each game is out.</span>
+                                break;
+                        }
+                    </div>
+                </div>
                 <div class="row g-2 mb-3">
                     @if (_t.Format == TtTournamentFormat.GroupStageAndPlayoff)
                     {
                         <div class="col-sm-6">
-                            <label class="form-label">Qualifiers per group</label>
+                            <label class="form-label">@(_t.PlayoffType == TtPlayoffType.PlacementBlocks ? "Places per block (from each group)" : "Qualifiers per group")</label>
                             <input type="number" min="1" max="16" class="form-control" @bind="_t.QualifiersPerGroup" />
                         </div>
                     }
@@ -151,6 +181,12 @@ else
             if (existing != null) { _t = existing; _seasonId = existing.TournamentSeasonId ?? 0; }
         }
         _loading = false;
+    }
+
+    void NormalizePlayoffType()
+    {
+        if (_t.Format != TtTournamentFormat.GroupStageAndPlayoff && _t.PlayoffType == TtPlayoffType.PlacementBlocks)
+            _t.PlayoffType = TtPlayoffType.AllPlaces;
     }
 
     async Task SaveAsync()

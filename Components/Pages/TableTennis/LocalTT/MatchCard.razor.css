@@ -1,0 +1,51 @@
+.match {
+    border: 1px solid var(--bs-border-color, #adb5bd);
+    border-radius: .4rem;
+    overflow: hidden;
+    background: var(--bs-body-bg, #fff);
+    font-size: .85rem;
+}
+
+.match.bye {
+    opacity: .6;
+    border-style: dashed;
+}
+
+.side {
+    display: flex;
+    justify-content: space-between;
+    gap: .5rem;
+    padding: .25rem .5rem;
+}
+
+.side + .side {
+    border-top: 1px solid var(--bs-border-color, #adb5bd);
+}
+
+.side.winner {
+    font-weight: 700;
+    background: rgba(25, 135, 84, .14);
+}
+
+.side.tbd .name {
+    color: #888;
+    font-style: italic;
+}
+
+.sets {
+    font-size: .72rem;
+    color: #777;
+    padding: .1rem .5rem .25rem;
+    border-top: 1px dashed var(--bs-border-color, #ced4da);
+}
+
+.side .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.side > span:last-child {
+    flex-shrink: 0;
+}

@@ -36,7 +36,7 @@ else
             </div>
             <div class="text-muted small mt-1">
                 @if (_t.HasGroups) { <span>Group games: @TtLocalLabels.SetsToWin(_t.SetsToWinGroup).</span> }
-                @if (_t.HasPlayoff) { <span> Playoff games: @TtLocalLabels.SetsToWin(_t.SetsToWinPlayoff).</span> }
+                @if (_t.HasPlayoff) { <span> Playoff games: @TtLocalLabels.SetsToWin(_t.SetsToWinPlayoff) · @TtLocalLabels.PlayoffType(_t.PlayoffType).</span> }
             </div>
         </div>
         <AuthorizeView Roles="Admin">
@@ -68,7 +68,7 @@ else
             <GroupTable Title="@($"Group {TtLocalLabels.GroupName(grp.Key)}")"
                         Members="grp.Value"
                         Games="_groupGames.Where(g => g.GroupNumber == grp.Key).ToList()"
-                        Qualifiers="@(_t.HasPlayoff ? _t.QualifiersPerGroup : 0)" />
+                        Qualifiers="@(_t.HasPlayoff && _t.PlayoffType != TtPlayoffType.PlacementBlocks ? _t.QualifiersPerGroup : 0)" />
         }
         @if (_unassigned.Count > 0)
         {
@@ -76,13 +76,51 @@ else
         }
     }
 
-    @* ── Playoff bracket ──────────────────────────────────────────── *@
+    @* ── Playoff ──────────────────────────────────────────────────── *@
     @if (_t.HasPlayoff)
     {
         <h5 class="mt-4">Playoff</h5>
-        @if (_playoffGames.Count > 0)
+        @if (_t.PlayoffType == TtPlayoffType.PlacementBlocks && _blocks.Count > 0)
         {
-            <BracketView Games="_playoffGames" />
+            @foreach (var blk in _blocks)
+            {
+                <h6 class="mt-4">
+                    Places @blk.PlaceFrom–@blk.PlaceTo
+                    <span class="badge bg-secondary ms-1">@(blk.Kind == "bracket" ? "all-places bracket" : blk.Kind == "group" ? "additional group" : "1 player")</span>
+                </h6>
+                @if (blk.Kind == "bracket")
+                {
+                    <BracketView Games="@(_playoffGames.Where(g => g.Block == blk.Number).ToList())" Type="TtPlayoffType.AllPlaces"
+                                 Seeds="_seeds" PlaceOffset="blk.PlaceFrom - 1" />
+                }
+                else if (blk.Kind == "group")
+                {
+                    <GroupTable Title="@($"Places {blk.PlaceFrom}–{blk.PlaceTo}")" Members="blk.Players"
+                                Games="@(BlockGroupGames(blk))" />
+                    <p class="text-muted small">Games these players already played in the group stage count here and are not played again.</p>
+                }
+                else
+                {
+                    <p class="text-muted">@blk.Players[0].FullName takes place @blk.PlaceFrom.</p>
+                }
+            }
+
+            @if (_finalStandings.Count > 0)
+            {
+                <h5 class="mt-4">Final standings</h5>
+                <table class="table table-sm" style="max-width:380px">
+                    <tbody>
+                        @foreach (var r in _finalStandings)
+                        {
+                            <tr @key="r.Place"><td style="width:50px"><strong>@r.Place.</strong></td><td>@r.Player.FullName</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+        else if (_playoffGames.Count > 0)
+        {
+            <BracketView Games="_playoffGames" Type="_t.PlayoffType" Seeds="_seeds" />
         }
         else if (_t.Format == TtTournamentFormat.PlayoffOnly && _participants.Count > 0)
         {
@@ -103,9 +141,9 @@ else
             {
                 <div class="list-group-item" @key="g.Id">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="@(g.Player1Sets > g.Player2Sets ? "fw-bold" : "")">@g.Player1?.FullName</span>
+                        <span class="@(g.Player1Sets > g.Player2Sets ? "fw-bold" : "")">@PName(g, g.Player1)</span>
                         <span class="badge bg-dark fs-6">@g.Player1Sets : @g.Player2Sets</span>
-                        <span class="@(g.Player2Sets > g.Player1Sets ? "fw-bold" : "")">@g.Player2?.FullName</span>
+                        <span class="@(g.Player2Sets > g.Player1Sets ? "fw-bold" : "")">@PName(g, g.Player2)</span>
                     </div>
                     <div class="text-muted small d-flex justify-content-between">
                         <span>@GameLabel(g)</span>
@@ -130,10 +168,16 @@ else
     Dictionary<int, List<PlayerTT>> _groups = new();
     List<PlayerTT> _unassigned = new();
     PlayerTT? _champion;
+    List<TtBlockInfo> _blocks = new();
+    List<(int Place, PlayerTT Player)> _finalStandings = new();
+    Dictionary<int, int> _seeds = new();
+
+    string PName(GameTT g, PlayerTT? p) =>
+        g.Stage == TtLocalLabels.StagePlayoff ? TtLocalLabels.WithSeed(p, _seeds, "") : (p?.FullName ?? "");
 
     IEnumerable<GameTT> _finishedGames => _games.Where(x => x.IsFinished)
-        .OrderBy(x => x.Stage == TtLocalLabels.StagePlayoff ? 1 : 0)
-        .ThenBy(x => x.GroupNumber).ThenBy(x => x.Round).ThenBy(x => x.Position);
+        .OrderBy(x => x.Stage == TtLocalLabels.StageGroup ? 0 : 1)
+        .ThenBy(x => x.Block).ThenBy(x => x.GroupNumber).ThenBy(x => x.Round).ThenBy(x => x.Position);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -142,6 +186,7 @@ else
         if (_t != null)
         {
             _participants = _t.Participants.ToList();
+            _seeds        = _participants.Where(p => p.PlayoffSeed != null).ToDictionary(p => p.PlayerId, p => p.PlayoffSeed!.Value);
             _games        = _t.Games.ToList();
             _groupGames   = _games.Where(g => g.Stage == TtLocalLabels.StageGroup).ToList();
             _playoffGames = _games.Where(g => g.Stage == TtLocalLabels.StagePlayoff).ToList();
@@ -156,20 +201,47 @@ else
                 if (byGroup.TryGetValue(i, out var list)) _groups[i] = list;
             _unassigned = _participants.Where(p => p.GroupNumber == null).Select(p => p.Player!).ToList();
 
-            // winner = winner of the final (or, for a group-only tournament, nobody is declared)
-            if (_playoffGames.Count > 0)
+            _blocks = _t.PlayoffType == TtPlayoffType.PlacementBlocks ? TtLocalService.DescribeBlocks(_participants, _games) : new();
+            _finalStandings = _blocks.Count > 0 ? TtLocalService.BuildFinalStandings(_blocks, _games) : new();
+
+            // winner = winner of the final (a group-only tournament declares nobody)
+            _champion = null;
+            if (_blocks.Count > 0)
+            {
+                _champion = _finalStandings.Where(r => r.Place == 1).Select(r => r.Player).FirstOrDefault();
+            }
+            else if (_playoffGames.Count > 0)
             {
                 int last = _playoffGames.Max(g => g.Round ?? 0);
-                var final = _playoffGames.FirstOrDefault(g => g.Round == last);
+                var final = _playoffGames.FirstOrDefault(g => g.Round == last && g.Position == 0);
                 if (final is { IsFinished: true })
                     _champion = final.WinnerId == final.Player1Id ? final.Player1 : final.Player2;
             }
-            else _champion = null;
         }
         _loading = false;
     }
 
-    string GameLabel(GameTT g) => g.Stage == TtLocalLabels.StagePlayoff
-        ? TtLocalLabels.PlayoffRoundName(g.Round ?? 1, _playoffGames.Max(x => x.Round ?? 1))
-        : $"Group {TtLocalLabels.GroupName(g.GroupNumber ?? 1)}" + (g.Round != null ? $" · round {g.Round}" : "");
+    int BlockOffset(int? block) =>
+        block == null ? 0 : (_blocks.FirstOrDefault(b => b.Number == block)?.PlaceFrom ?? 1) - 1;
+
+    /// <summary>The games that count in an additional group: those already played in the group stage plus its own games.</summary>
+    List<GameTT> BlockGroupGames(TtBlockInfo blk) =>
+        _groupGames.Concat(_games.Where(g => g.Stage == TtLocalLabels.StageBlockGroup && g.Block == blk.Number)).ToList();
+
+    string GameLabel(GameTT g)
+    {
+        if (g.Stage == TtLocalLabels.StagePlayoff)
+        {
+            int rounds = _playoffGames.Where(x => x.Block == g.Block).Max(x => x.Round ?? 1);
+            return _t!.BracketType == TtPlayoffType.AllPlaces
+                ? $"Round {g.Round} · {TtLocalLabels.PoolLabel(1 << rounds, g.Round ?? 1, g.Position ?? 0, BlockOffset(g.Block))}"
+                : TtLocalLabels.PlayoffRoundName(g.Round ?? 1, rounds);
+        }
+        if (g.Stage == TtLocalLabels.StageBlockGroup)
+        {
+            var b = _blocks.FirstOrDefault(x => x.Number == g.Block);
+            return (b == null ? "Additional group" : $"Places {b.PlaceFrom}–{b.PlaceTo} · group") + (g.Round != null ? $" · round {g.Round}" : "");
+        }
+        return $"Group {TtLocalLabels.GroupName(g.GroupNumber ?? 1)}" + (g.Round != null ? $" · round {g.Round}" : "");
+    }
 }

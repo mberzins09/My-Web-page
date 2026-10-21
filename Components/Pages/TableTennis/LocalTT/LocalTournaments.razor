@@ -43,7 +43,7 @@ else
                     </span>
                     <span>
                         <span class="badge bg-secondary">@TtLocalLabels.Format(t.Format)</span>
-                        <span class="badge bg-light text-dark border">@t.Games.Count game(s)</span>
+                        <span class="badge bg-light text-dark border">@t.Games.Count(g => !g.IsBye) game(s)</span>
                     </span>
                 </a>
             }

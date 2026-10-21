@@ -1,6 +1,7 @@
 @using MartinsWeb.Models
+@using MartinsWeb.Services
 
-@* Single-elimination bracket. Pass the PLAYOFF games of a tournament (Stage = "Playoff"). *@
+@* Playoff display. Pass the PLAYOFF games of a tournament, the playoff type and (optional) the seeds. *@
 
 @if (_totalRounds == 0)
 {
@@ -8,80 +9,146 @@
 }
 else
 {
-    <div class="bracket">
-        @for (int r = 1; r <= _totalRounds; r++)
-        {
-            int round = r;
-            int count = 1 << (_totalRounds - round);
-            <div class="round" @key="round">
-                <div class="round-title">@TtLocalLabels.PlayoffRoundName(round, _totalRounds)</div>
-                <div class="round-matches">
-                    @for (int p = 0; p < count; p++)
-                    {
-                        int pos = p;
-                        var g = Find(round, pos);
-                        <div class="match-wrap" @key="@($"{round}-{pos}")">
-                            @if (g == null)
-                            {
-                                @* round-1 slot without a game = bye: the player already sits in the round-2 game *@
-                                var byePlayer = ByePlayerName(pos);
-                                <div class="match bye">
-                                    <div class="side"><span class="name">@byePlayer</span><span>bye</span></div>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="match">
-                                    @foreach (var first in _both)
-                                    {
-                                        var player = first ? g.Player1 : g.Player2;
-                                        int? sets  = first ? g.Player1Sets : g.Player2Sets;
-                                        bool won   = g.IsFinished && g.WinnerId == (first ? g.Player1Id : g.Player2Id);
-                                        string cls = "side" + (won ? " winner" : "") + (player == null ? " tbd" : "");
-                                        <div class="@cls">
-                                            <span class="name">@(player?.FullName ?? "TBD")</span>
-                                            <span>@(sets?.ToString() ?? "")</span>
-                                        </div>
-                                    }
-                                    @if (g.Sets.Count > 0)
-                                    {
-                                        <div class="sets">@SetPointsText(g)</div>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    }
-                </div>
-            </div>
-        }
-    </div>
+    @if (Type == TtPlayoffType.AllPlaces)
+    {
+        <p class="text-muted small mb-2">
+            Every place is played out: winners continue in the bracket above, losers drop into the bracket for the lower places.
+            The bracket is fixed after the first round.
+        </p>
+    }
+
+    @foreach (var tree in _trees)
+    {
+        <div class="mb-4" @key="tree.Title">
+            @if (Type == TtPlayoffType.AllPlaces)
+            {
+                <h6 class="mb-1">@tree.Title</h6>
+            }
+            <BracketTree Rounds="tree.Rounds" Titles="tree.Titles" Seeds="Seeds" />
+        </div>
+    }
+
+    @if (_placements.Count > 0)
+    {
+        <h6 class="mt-3">Final placements</h6>
+        <table class="table table-sm" style="max-width:380px">
+            <tbody>
+                @foreach (var pl in _placements)
+                {
+                    <tr @key="pl.Place">
+                        <td style="width:50px"><strong>@pl.Place.</strong></td>
+                        <td>@TtLocalLabels.WithSeed(pl.Player, Seeds)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
 }
 
 @code {
-    [Parameter] public List<GameTT> Games { get; set; } = new();
+    record Tree(string Title, List<List<TtBracketSlot>> Rounds, List<string> Titles);
 
-    static readonly bool[] _both = { true, false };
+    [Parameter] public List<GameTT> Games { get; set; } = new();
+    [Parameter] public TtPlayoffType Type { get; set; } = TtPlayoffType.SingleElimination;
+
+    /// <summary>playerId -> seed in the playoff (shown after the name).</summary>
+    [Parameter] public IReadOnlyDictionary<int, int>? Seeds { get; set; }
+
+    /// <summary>Placement blocks: number of places decided in the blocks before this one (block 2 = places 9-16 -> 8).</summary>
+    [Parameter] public int PlaceOffset { get; set; }
 
     int _totalRounds;
     Dictionary<(int, int), GameTT> _lookup = new();
+    List<Tree> _trees = new();
+    List<(int Place, PlayerTT Player)> _placements = new();
 
     protected override void OnParametersSet()
     {
         var playoff = Games.Where(g => g.Stage == TtLocalLabels.StagePlayoff && g.Round != null && g.Position != null).ToList();
         _totalRounds = playoff.Count == 0 ? 0 : playoff.Max(g => g.Round!.Value);
         _lookup = playoff.ToDictionary(g => (g.Round!.Value, g.Position!.Value));
+        _placements = Type == TtPlayoffType.AllPlaces ? TtLocalService.BuildPlacements(playoff, PlaceOffset) : new();
+        _trees = _totalRounds == 0 ? new() : (Type == TtPlayoffType.AllPlaces ? BuildAllPlacesTrees() : BuildSingleEliminationTree());
     }
 
     GameTT? Find(int round, int pos) => _lookup.TryGetValue((round, pos), out var g) ? g : null;
 
-    string ByePlayerName(int pos)
+    static bool IsEmptyBye(GameTT? g) => g == null || (g.IsBye && g.Player1Id == null && g.Player2Id == null);
+
+    // ── single elimination: one tree with all rounds ─────────────────────
+    List<Tree> BuildSingleEliminationTree()
     {
-        // the player who skipped round 1 is in the next round's game, first slot for even positions
-        var next = Find(2, pos / 2);
-        var player = next == null ? null : (pos % 2 == 0 ? next.Player1 : next.Player2);
-        return player?.FullName ?? "—";
+        int size = 1 << _totalRounds;
+        var rounds = new List<List<TtBracketSlot>>();
+        var titles = new List<string>();
+        for (int r = 1; r <= _totalRounds; r++)
+        {
+            var slots = new List<TtBracketSlot>();
+            for (int p = 0; p < (size >> r); p++)
+            {
+                var g = Find(r, p);
+                // a round-1 slot without a game = bye: that player already sits in the round-2 game
+                slots.Add(new TtBracketSlot(g, g == null && r == 1 ? ByePlayerName(p) : null));
+            }
+            rounds.Add(slots);
+            titles.Add(TtLocalLabels.PlayoffRoundName(r, _totalRounds));
+        }
+        return new List<Tree> { new Tree("Playoff", rounds, titles) };
     }
 
-    static string SetPointsText(GameTT g) =>
-        string.Join(", ", g.Sets.OrderBy(s => s.SetNumber).Select(s => $"{s.Player1Points}:{s.Player2Points}"));
+    string? ByePlayerName(int pos)
+    {
+        var next = Find(2, pos / 2);
+        var player = next == null ? null : (pos % 2 == 0 ? next.Player1 : next.Player2);
+        return player == null ? null : TtLocalLabels.WithSeed(player, Seeds);
+    }
+
+    // ── all places: the main bracket plus one tree for every pool the losers drop into ──
+    List<Tree> BuildAllPlacesTrees()
+    {
+        int size = 1 << _totalRounds;
+
+        // a tree starts in round 1 (the main bracket) or at every "lower" pool (odd pool index) of a later round
+        var roots = new List<(int Round, int Pool)> { (1, 0) };
+        for (int r = 2; r <= _totalRounds; r++)
+            for (int k = 1; k < (1 << (r - 1)); k += 2)
+                roots.Add((r, k));
+
+        var result = new List<(int Start, int Rounds, Tree Tree)>();
+        foreach (var (r0, k0) in roots)
+        {
+            var rounds = new List<List<TtBracketSlot>>();
+            var titles = new List<string>();
+            int treeRounds = _totalRounds - r0 + 1;
+            bool anyGame = false;
+
+            for (int t = 0; t < treeRounds; t++)
+            {
+                int r = r0 + t;
+                int perPool = size >> r;     // games per pool in round r
+                int pool = k0 << t;          // the winners' chain always stays in the upper pool
+                var slots = new List<TtBracketSlot>();
+                for (int j = 0; j < perPool; j++)
+                {
+                    var g = Find(r, pool * perPool + j);
+                    if (!IsEmptyBye(g)) anyGame = true;
+                    slots.Add(new TtBracketSlot(IsEmptyBye(g) ? null : g, null));
+                }
+                rounds.Add(slots);
+
+                if (t == treeRounds - 1)
+                    titles.Add(pool == 0 && PlaceOffset == 0 ? "Final" : TtLocalLabels.PoolLabel(size, r, pool * perPool, PlaceOffset));
+                else
+                    titles.Add(TtLocalLabels.PlayoffRoundName(t + 1, treeRounds));
+            }
+            if (!anyGame) continue;
+
+            int perPool0 = size >> r0;
+            string title = r0 == 1 && PlaceOffset == 0 ? "Main bracket" : TtLocalLabels.PoolLabel(size, r0, k0 * perPool0, PlaceOffset);
+            int start = PlaceOffset + k0 * (size >> (r0 - 1)) + 1;     // first place decided in this pool
+            result.Add((start, treeRounds, new Tree(title, rounds, titles)));
+        }
+
+        return result.OrderBy(x => x.Start).ThenByDescending(x => x.Rounds).Select(x => x.Tree).ToList();
+    }
 }
