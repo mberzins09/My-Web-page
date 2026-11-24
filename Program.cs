@@ -30,6 +30,7 @@ builder.Services.AddScoped<ApiSportsService>();
 builder.Services.AddScoped<WinsService>();
 builder.Services.AddScoped<UserProfileService>();
 builder.Services.AddScoped<TtLocalService>();
+builder.Services.AddScoped<RankingAppApiService>();
 builder.Services.AddTransient<TeamService>();
 builder.Services.AddHostedService<ApiScoreSyncService>();
 builder.Services.AddHttpClient();
@@ -183,6 +184,19 @@ app.MapGet("/api/refresh-signin", async (HttpContext ctx, AppDbContext db, strin
                  ? returnUrl : "/";
     return Results.LocalRedirect(target);
 }).RequireAuthorization();
+
+// ── Public RankingApp (mobile app) API — no authentication, data is public ────
+var rankingApp = app.MapGroup("/api/rankingapp").AllowAnonymous();
+
+rankingApp.MapGet("/players", async (RankingAppApiService svc) =>
+    Results.Ok(await svc.GetPlayersAsync()));
+
+rankingApp.MapGet("/players/{keyName}/history", async (string keyName, RankingAppApiService svc) =>
+{
+    if (string.IsNullOrWhiteSpace(keyName)) return Results.BadRequest();
+    var history = await svc.GetPlayerHistoryAsync(keyName.Trim());
+    return history == null ? Results.NotFound() : Results.Ok(history);
+});
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();

@@ -1,69 +1,182 @@
 ﻿@page "/"
+@using MartinsWeb.Services
+@inject GameService GameService
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Mārtiņš Bērziņš</PageTitle>
 
-<div class="container py-5">
+<div class="home container py-4">
 
-    <!-- Hero Section -->
-    <div class="text-center mb-5">
-        <h1 class="display-4 fw-bold">Welcome 👋</h1>
-        <p class="lead text-muted">
-            Personal website showcasing my work, projects, and ideas.
-        </p>
+    <!-- Hero -->
+    <header class="hero text-center mb-4">
+        <nav class="hero-links mt-3" aria-label="Sections">
+            <a href="#predictions">⚽ Predictions</a>
+            <a href="#table-tennis">🏓 Table tennis</a>
+            <a href="#about">👤 About me</a>
+        </nav>
+    </header>
 
-        <div class="mt-4">
-            <a class="btn btn-primary btn-lg me-2" href="/cv">View CV</a>
-            <a class="btn btn-outline-secondary btn-lg" href="/lgtf">My Projects</a>
-        </div>
-    </div>
-
-    <!-- About Section -->
-    <div class="row mb-5">
-        <div class="col-md-8 offset-md-2 text-center">
-            <p class="text-muted">
-                This is my personal web page where you can explore my professional background,
-                browse my projects, and try out applications I've built. My name is Mārtiņš Bērziņš.
-            </p>
-        </div>
-    </div>
-
-    <!-- Features Section -->
-    <div class="row text-center features-section">
-
-        <div class="col-md-4 mb-4">
-            <div class="card h-100 shadow-sm feature-card">
-                <div class="card-body">
-                    <h5 class="card-title">📄 CV</h5>
-                    <p class="card-text">
-                        Learn more about my experience, skills, and background.
-                    </p>
-                    <a href="/cv" class="btn btn-outline-primary btn-sm">Open CV</a>
-                </div>
+    <!-- 1. Sports prediction games -->
+    <section id="predictions" class="home-block mb-4">
+        <div class="block-head">
+            <span class="block-icon" aria-hidden="true">🏆</span>
+            <div>
+                <h2>Sports Prediction Games</h2>
+                <p>
+                    Predict the scores of football and ice hockey tournaments, collect points for every
+                    correct guess and compete on the leaderboard against everyone else. Create a free account
+                    and join any ongoing tournament.
+                </p>
             </div>
         </div>
 
-        <div class="col-md-4 mb-4">
-            <div class="card h-100 shadow-sm feature-card">
-                <div class="card-body">
-                    <h5 class="card-title">💻 Projects</h5>
-                    <p class="card-text">
-                        Explore my favorite project — a .NET MAUI application — with more coming soon.
-                    </p>
-                    <a href="/lgtf" class="btn btn-outline-light btn-sm">View Projects</a>
+        <AuthorizeView>
+            <NotAuthorized>
+                <div class="block-actions">
+                    <a class="btn btn-light btn-sm fw-semibold" href="/register">Register</a>
+                    <a class="btn btn-outline-light btn-sm" href="/login">Log in</a>
                 </div>
+            </NotAuthorized>
+            <Authorized>
+                <p class="block-note">You are logged in - pick a tournament below and make your predictions.</p>
+            </Authorized>
+        </AuthorizeView>
+
+        @if (tournaments == null)
+        {
+            <p class="block-note">Loading tournaments...</p>
+        }
+        else
+        {
+            <h3 class="row-title">Ongoing</h3>
+            @if (ongoing.Count == 0)
+            {
+                <p class="block-note">No ongoing tournaments right now - a new one is coming soon.</p>
+            }
+            else
+            {
+                <div class="tile-row">
+                    @foreach (var t in ongoing)
+                    {
+                        <a class="tile tile-live" href="@($"/prognozes/{t.Slug}/leaderboard")">
+                            <span class="tile-icon">@t.Icon</span>
+                            <span class="tile-name">@t.Name</span>
+                            <span class="tile-badge">Live</span>
+                        </a>
+                    }
+                </div>
+            }
+
+            @if (finished.Count > 0)
+            {
+                <h3 class="row-title">Finished</h3>
+                <div class="tile-row">
+                    @foreach (var t in finished)
+                    {
+                        <a class="tile" href="@($"/prognozes/{t.Slug}/leaderboard")">
+                            <span class="tile-icon">@t.Icon</span>
+                            <span class="tile-name">@t.Name</span>
+                        </a>
+                    }
+                </div>
+                <a class="block-link" href="/prognozes/history">📜 All tournament history →</a>
+            }
+        }
+    </section>
+
+    <!-- 2. Table tennis -->
+    <section id="table-tennis" class="home-block mb-4">
+        <div class="block-head">
+            <span class="block-icon" aria-hidden="true">🏓</span>
+            <div>
+                <h2>Table Tennis</h2>
+                <p>
+                    Everything about Latvian table tennis in one place: LGTF tournaments with all their games,
+                    head-to-head records between any two players and the monthly federation rankings.
+                </p>
             </div>
         </div>
 
-        <div class="col-md-4 mb-4">
-            <div class="card h-100 shadow-sm feature-card">
-                <div class="card-body">
-                    <h5 class="card-title">🎮 Prediction Game</h5>
-                    <p class="card-text">
-                        Register and log in to participate in prediction games and track your results.
-                    </p>
-                    <a href="/prognozes/worldcup2026/leaderboard" class="btn btn-outline-primary btn-sm">Get Started</a>
-                </div>
+        <div class="tt-grid">
+            <a class="app-promo" href="https://play.google.com/store/apps/details?id=com.companyname.rankingapp"
+               target="_blank" rel="noopener">
+                <span class="app-icon" aria-hidden="true">📱</span>
+                <span class="app-text">
+                    <span class="app-title">RankingApp for Android</span>
+                    <span class="app-desc">
+                        Follow your LGTF ranking: import your tournaments, see the rating change of every game,
+                        browse the monthly rankings, the tournament calendar and results.
+                    </span>
+                    <span class="app-cta">Get it on Google Play →</span>
+                </span>
+            </a>
+
+            <div class="tt-links">
+                <a class="tt-link" href="/lgtf-tt/rankings2">
+                    <span class="tt-link-title">📈 Alternative ranking</span>
+                    <span class="tt-link-desc">My own alternative Latvian table tennis ranking, calculated by my own rules from LGTF games.</span>
+                </a>
+                <a class="tt-link" href="/lgtf-tt">
+                    <span class="tt-link-title">🏆 Tournaments</span>
+                    <span class="tt-link-desc">LGTF tournaments and their games.</span>
+                </a>
+                <a class="tt-link" href="/lgtf-tt/h2h">
+                    <span class="tt-link-title">⚔️ Head to head</span>
+                    <span class="tt-link-desc">Every game between two players.</span>
+                </a>
             </div>
         </div>
-    </div>
+    </section>
+
+    <!-- 3. About me -->
+    <section id="about" class="home-block">
+        <h2 class="mb-3">About me</h2>
+
+        <!-- Basketball: photo left -->
+        <div class="about">
+            <img class="about-photo" src="images/7vas.webp" alt="Mārtiņš Bērziņš playing basketball" loading="lazy" />
+            <div class="about-text">
+                <h3>🏀 Basketball</h3>
+                <p>
+                    Hi, I'm <strong>Mārtiņš Bērziņš</strong>. Sport has always been a big part of my life.
+                    I love playing basketball - that's me on the court in the photo.
+                </p>
+            </div>
+        </div>
+
+        <!-- Table tennis: photo right -->
+        <div class="about about-reverse">
+            <img class="about-photo" src="images/tabletennis.webp" alt="Mārtiņš Bērziņš and his wife at a table tennis table" loading="lazy" />
+            <div class="about-text">
+                <h3>🏓 Table tennis</h3>
+                <p>
+                    Table tennis is the sport I play the most now - I compete in LGTF tournaments, and it is
+                    something I share with my wife, who plays too (that's the two of us in the photo).
+                </p>
+                <p>
+                    Because I wanted an easy way to follow my own ranking, I developed
+                    <strong>RankingApp</strong> - and this website grew from the same idea.
+                </p>
+            </div>
+        </div>
+
+        <div class="about-cv">
+            <p>Want to know more about my experience and skills? Take a look at my CV.</p>
+            <a class="btn btn-light btn-sm fw-semibold" href="/cv">📄 View CV</a>
+        </div>
+    </section>
 </div>
+
+@code {
+    private List<MartinsWeb.Models.Tournament>? tournaments;
+    private List<MartinsWeb.Models.Tournament> ongoing = [];
+    private List<MartinsWeb.Models.Tournament> finished = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        tournaments = await GameService.GetAllTournamentsAsync();
+
+        // Same split as the nav menu: active = ongoing, the rest = finished (newest first)
+        ongoing = tournaments.Where(t => t.IsActive).OrderByDescending(t => t.Year).ThenBy(t => t.Name).ToList();
+        finished = tournaments.Where(t => !t.IsActive).OrderByDescending(t => t.Year).ThenBy(t => t.Name).ToList();
+    }
+}

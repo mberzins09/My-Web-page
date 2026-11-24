@@ -1,0 +1,294 @@
+/* Home page: three blocks in the site's navy → purple style (same as .features-section / .lgtf-card) */
+
+.home {
+    max-width: 1100px;
+}
+
+/* ── Hero ─────────────────────────────────────────────── */
+.hero h1 {
+    color: #052767;
+}
+
+.hero .lead {
+    color: #3a4a63;
+}
+
+.hero-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: .5rem;
+}
+
+.hero-links a {
+    padding: .35rem .9rem;
+    border-radius: 999px;
+    background: rgba(5, 39, 103, .08);
+    color: #052767;
+    font-weight: 600;
+    font-size: .9rem;
+    text-decoration: none;
+    transition: background .15s;
+}
+
+.hero-links a:hover {
+    background: rgba(5, 39, 103, .16);
+}
+
+/* ── Blocks ───────────────────────────────────────────── */
+.home-block {
+    background: linear-gradient(160deg, rgba(5, 39, 103, .95) 0%, rgba(58, 6, 71, .95) 100%);
+    color: #fff;
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 8px 24px rgba(5, 39, 103, .18);
+    scroll-margin-top: 1rem;
+}
+
+.block-head {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.block-icon {
+    font-size: 2.2rem;
+    line-height: 1;
+}
+
+.home-block h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: .4rem;
+}
+
+.home-block p {
+    color: rgba(255, 255, 255, .82);
+    margin-bottom: .75rem;
+}
+
+.block-actions {
+    display: flex;
+    gap: .5rem;
+    margin: .25rem 0 1rem;
+}
+
+.block-note {
+    font-size: .9rem;
+    color: rgba(255, 255, 255, .65) !important;
+}
+
+.block-link {
+    display: inline-block;
+    margin-top: .75rem;
+    color: #ffd27a;
+    font-size: .9rem;
+    text-decoration: none;
+}
+
+.block-link:hover {
+    text-decoration: underline;
+}
+
+.row-title {
+    font-size: .8rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: rgba(255, 255, 255, .6);
+    margin: 1rem 0 .5rem;
+}
+
+/* ── Prediction tournament tiles ──────────────────────── */
+.tile-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: .6rem;
+}
+
+.tile {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: .7rem .9rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: #fff;
+    text-decoration: none;
+    transition: transform .12s, background .12s, border-color .12s;
+}
+
+.tile:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, .14);
+    border-color: rgba(255, 255, 255, .3);
+}
+
+.tile-icon {
+    font-size: 1.4rem;
+}
+
+.tile-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: .92rem;
+    line-height: 1.25;
+}
+
+.tile-live {
+    border-color: rgba(110, 231, 183, .45);
+}
+
+.tile-badge {
+    font-size: .7rem;
+    font-weight: 700;
+    padding: .15rem .45rem;
+    border-radius: 999px;
+    background: #6ee7b7;
+    color: #04342a;
+}
+
+/* ── Table tennis ─────────────────────────────────────── */
+.tt-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 1rem;
+    margin-top: .5rem;
+}
+
+.app-promo {
+    display: flex;
+    gap: 1rem;
+    padding: 1.1rem;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #ff9f43, #e8842a);
+    color: #2a1147;
+    text-decoration: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .25);
+    transition: transform .12s, box-shadow .12s;
+}
+
+.app-promo:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, .3);
+}
+
+.app-icon {
+    font-size: 2.6rem;
+    line-height: 1;
+}
+
+.app-text {
+    display: flex;
+    flex-direction: column;
+    gap: .35rem;
+}
+
+.app-title {
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.app-desc {
+    font-size: .9rem;
+    line-height: 1.4;
+}
+
+.app-cta {
+    margin-top: .25rem;
+    font-weight: 700;
+}
+
+.tt-links {
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+}
+
+.tt-link {
+    display: flex;
+    flex-direction: column;
+    padding: .7rem .9rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .12);
+    color: #fff;
+    text-decoration: none;
+    transition: background .12s, border-color .12s;
+}
+
+.tt-link:hover {
+    background: rgba(255, 255, 255, .14);
+    border-color: rgba(255, 255, 255, .3);
+}
+
+.tt-link-title {
+    font-weight: 700;
+}
+
+.tt-link-desc {
+    font-size: .85rem;
+    color: rgba(255, 255, 255, .72);
+}
+
+/* ── About me ─────────────────────────────────────────── */
+.about {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+}
+
+.about + .about {
+    margin-top: 1.5rem;
+}
+
+/* Second row: photo on the right */
+.about-reverse {
+    flex-direction: row-reverse;
+}
+
+.about-text h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: .4rem;
+}
+
+.about-photo {
+    width: 220px;
+    max-width: 40%;
+    border-radius: 14px;
+    object-fit: cover;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+}
+
+.about-cv {
+    margin-top: 1.5rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid rgba(255, 255, 255, .15);
+}
+
+/* ── Phones ───────────────────────────────────────────── */
+@media (max-width: 767.98px) {
+    .home-block {
+        padding: 1.1rem;
+    }
+
+    .tt-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .about,
+    .about-reverse {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .about-cv {
+        text-align: center;
+    }
+
+    .about-photo {
+        width: 200px;
+        max-width: 70%;
+    }
+}
