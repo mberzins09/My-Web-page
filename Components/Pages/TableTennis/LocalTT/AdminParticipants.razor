@@ -1,0 +1,209 @@
+@page "/tt-local/admin/tournament/{TournamentId:int}/participants"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject TtLocalService Svc
+
+<PageTitle>Participants — @(_t?.TournamentName)</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item"><a href="/tt-local/tournament/@TournamentId">@(_t?.TournamentName ?? "Tournament")</a></li>
+        <li class="breadcrumb-item active">Participants</li>
+    </ol>
+</nav>
+
+@if (_loading)
+{
+    <p class="text-muted">Loading...</p>
+}
+else if (_t == null)
+{
+    <div class="alert alert-warning">Tournament not found.</div>
+}
+else
+{
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h4 class="mb-0">👥 Participants — @_t.TournamentName</h4>
+        <a class="btn btn-outline-primary btn-sm" href="/tt-local/admin/tournament/@_t.Id/games">Next: games 🎯</a>
+    </div>
+
+    @* ── add players ── *@
+    <div class="card mb-3" style="max-width:640px">
+        <div class="card-body">
+            <label class="form-label">Add a player</label>
+            <div class="d-flex flex-wrap gap-2">
+                <select class="form-select" style="max-width:320px" @bind="_addPlayerId">
+                    <option value="0">— select player —</option>
+                    @foreach (var p in AvailablePlayers) { <option value="@p.Id">@p.FullName</option> }
+                </select>
+                <button class="btn btn-primary" disabled="@(_addPlayerId == 0)" @onclick="AddAsync">Add</button>
+                <button class="btn btn-outline-primary" disabled="@(AvailablePlayers.Count == 0)" @onclick="AddAllAsync">Add all remaining (@AvailablePlayers.Count)</button>
+            </div>
+            @if (_allPlayers.Count == 0)
+            {
+                <div class="text-muted small mt-2">There are no players yet - <a href="/tt-local/admin/players">create players</a> first.</div>
+            }
+        </div>
+    </div>
+
+    @if (_error != null) { <div class="alert alert-danger" style="max-width:640px">@_error</div> }
+
+    @* ── draw buttons ── *@
+    @if (_parts.Count > 0)
+    {
+        <div class="d-flex flex-wrap gap-2 mb-3">
+            @if (_t.HasGroups)
+            {
+                <button class="btn btn-outline-success btn-sm" @onclick="DrawGroupsAsync">🎲 Draw @_t.GroupCount group(s) randomly</button>
+            }
+            @if (_t.Format == TtTournamentFormat.PlayoffOnly)
+            {
+                <button class="btn btn-outline-success btn-sm" @onclick="ShuffleSeedsAsync">🎲 Random seeding</button>
+            }
+        </div>
+    }
+
+    @if (_parts.Count == 0)
+    {
+        <p class="text-muted">No participants yet.</p>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-sm align-middle" style="max-width:700px">
+                <thead>
+                    <tr>
+                        <th>Player</th>
+                        @if (_t.HasGroups) { <th style="width:140px">Group</th> }
+                        @if (_t.Format == TtTournamentFormat.PlayoffOnly) { <th style="width:110px">Seed</th> }
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in _parts)
+                    {
+                        <tr @key="p.Id">
+                            <td>@p.Player?.FullName</td>
+                            @if (_t.HasGroups)
+                            {
+                                <td>
+                                    <select class="form-select form-select-sm" value="@(p.GroupNumber ?? 0)"
+                                            @onchange="e => OnGroupChanged(p, e)">
+                                        <option value="0">—</option>
+                                        @for (int i = 1; i <= _t.GroupCount; i++)
+                                        {
+                                            <option value="@i">Group @TtLocalLabels.GroupName(i)</option>
+                                        }
+                                    </select>
+                                </td>
+                            }
+                            @if (_t.Format == TtTournamentFormat.PlayoffOnly)
+                            {
+                                <td>
+                                    <input type="number" min="1" class="form-control form-control-sm" value="@p.Seed"
+                                           @onchange="e => OnSeedChanged(p, e)" />
+                                </td>
+                            }
+                            <td class="text-end">
+                                <button class="btn btn-outline-danger btn-sm" @onclick="() => RemoveAsync(p)">🗑</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="text-muted small">
+            @if (_t.HasGroups) { <div>Group sizes: @GroupSizes()</div> }
+            @if (_t.Format == TtTournamentFormat.PlayoffOnly) { <div>Seed 1 is the best player; the best seeds get a bye if the number of players isn't a power of two.</div> }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int TournamentId { get; set; }
+
+    bool _loading = true;
+    TournamentTT? _t;
+    List<TournamentPlayerTT> _parts = new();
+    List<PlayerTT> _allPlayers = new();
+    int _addPlayerId;
+    string? _error;
+
+    List<PlayerTT> AvailablePlayers =>
+        _allPlayers.Where(p => _parts.All(x => x.PlayerId != p.Id)).ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _t = await Svc.GetTournamentAsync(TournamentId);
+        if (_t != null)
+        {
+            _allPlayers = await Svc.GetPlayersAsync();
+            await ReloadAsync();
+        }
+        _loading = false;
+    }
+
+    async Task ReloadAsync() => _parts = await Svc.GetParticipantsAsync(TournamentId);
+
+    async Task AddAsync()
+    {
+        _error = await Svc.AddParticipantAsync(TournamentId, _addPlayerId);
+        _addPlayerId = 0;
+        await ReloadAsync();
+    }
+
+    async Task AddAllAsync()
+    {
+        foreach (var p in AvailablePlayers)
+            await Svc.AddParticipantAsync(TournamentId, p.Id);
+        _error = null;
+        await ReloadAsync();
+    }
+
+    async Task RemoveAsync(TournamentPlayerTT p)
+    {
+        _error = await Svc.RemoveParticipantAsync(p.Id);
+        await ReloadAsync();
+    }
+
+    async Task OnGroupChanged(TournamentPlayerTT p, ChangeEventArgs e)
+    {
+        int.TryParse(e.Value?.ToString(), out var g);
+        _error = await Svc.SetGroupAsync(p.Id, g == 0 ? null : g);
+        await ReloadAsync();
+    }
+
+    async Task OnSeedChanged(TournamentPlayerTT p, ChangeEventArgs e)
+    {
+        int? seed = int.TryParse(e.Value?.ToString(), out var s) ? s : null;
+        await Svc.SetSeedAsync(p.Id, seed);
+        await ReloadAsync();
+    }
+
+    async Task DrawGroupsAsync()
+    {
+        _error = await Svc.AutoDrawGroupsAsync(TournamentId);
+        await ReloadAsync();
+    }
+
+    async Task ShuffleSeedsAsync()
+    {
+        await Svc.ShuffleSeedsAsync(TournamentId);
+        _error = null;
+        await ReloadAsync();
+    }
+
+    string GroupSizes()
+    {
+        var parts = Enumerable.Range(1, _t!.GroupCount)
+            .Select(i => $"{TtLocalLabels.GroupName(i)}: {_parts.Count(p => p.GroupNumber == i)}").ToList();
+        int none = _parts.Count(p => p.GroupNumber == null);
+        if (none > 0) parts.Add($"no group: {none}");
+        return string.Join(" · ", parts);
+    }
+}

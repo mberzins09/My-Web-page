@@ -1,0 +1,120 @@
+/* --w is half of the gap between two columns: every connector is made of two halves of width --w */
+.tree-scroll {
+    overflow-x: auto;
+    padding: .25rem 0 .75rem;
+    --w: 14px;
+    --line: var(--bs-secondary-color, #6c757d);
+}
+
+.tree {
+    display: flex;
+    align-items: stretch;
+    gap: calc(var(--w) * 2);
+    width: max-content;
+}
+
+.col {
+    display: flex;
+    flex-direction: column;
+}
+
+.col-title {
+    height: 1.7rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: .8rem;
+    color: var(--bs-secondary-color, #666);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+
+.col.final .col-title {
+    color: var(--bs-body-color, #222);
+}
+
+.slots {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+}
+
+/* every slot of a column has the same height, so a game sits exactly in the middle of the two games it follows */
+.slot {
+    flex: 1 1 0;
+    min-height: 92px;
+    width: 232px;
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+
+/* the match card is a child component, so its root needs ::deep to be reached from here */
+.slot ::deep .match {
+    width: 100%;
+}
+
+/* ── left half: lines run to the right ── */
+.slot.up::after {
+    content: "";
+    position: absolute;
+    right: calc(var(--w) * -1);
+    width: var(--w);
+    top: 50%;
+    bottom: 0;
+    border-top: 2px solid var(--line);
+    border-right: 2px solid var(--line);
+}
+
+.slot.down::after {
+    content: "";
+    position: absolute;
+    right: calc(var(--w) * -1);
+    width: var(--w);
+    top: 0;
+    bottom: 50%;
+    border-bottom: 2px solid var(--line);
+    border-right: 2px solid var(--line);
+}
+
+.slot.single::after {
+    content: "";
+    position: absolute;
+    right: calc(var(--w) * -2);
+    width: calc(var(--w) * 2);
+    top: 50%;
+    border-top: 2px solid var(--line);
+}
+
+.slot.has-prev::before {
+    content: "";
+    position: absolute;
+    left: calc(var(--w) * -1);
+    width: var(--w);
+    top: 50%;
+    border-top: 2px solid var(--line);
+}
+
+/* ── right half: the same, mirrored ── */
+.slot.right.up::after {
+    right: auto;
+    left: calc(var(--w) * -1);
+    border-right: none;
+    border-left: 2px solid var(--line);
+}
+
+.slot.right.down::after {
+    right: auto;
+    left: calc(var(--w) * -1);
+    border-right: none;
+    border-left: 2px solid var(--line);
+}
+
+.slot.right.single::after {
+    right: auto;
+    left: calc(var(--w) * -2);
+}
+
+.slot.right.has-prev::before {
+    left: auto;
+    right: calc(var(--w) * -1);
+}

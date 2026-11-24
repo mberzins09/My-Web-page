@@ -151,6 +151,25 @@
                    📈 Alt. Turnīri
                 </NavLink>
             </div>
+            <div class="nav-item px-4">
+                <NavLink class="nav-link py-1 lh-sm" href="/tt-local">
+                    🏓 Local tournaments
+                </NavLink>
+            </div>
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <div class="nav-item px-4">
+                        <NavLink class="nav-link py-1 lh-sm" href="/tt-local/admin/players" style="font-size:.88rem; opacity:.85">
+                            ⚙️ Players
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-4">
+                        <NavLink class="nav-link py-1 lh-sm" href="/tt-local/admin/seasons" style="font-size:.88rem; opacity:.85">
+                            ⚙️ Seasons
+                        </NavLink>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
         }
 
         <AuthorizeView Roles="Admin">
@@ -225,7 +244,7 @@
     {
         prognozesOpen = Nav.Uri.Contains("/prognozes/");
         latviaTTOpen  = Nav.Uri.Contains("/lgtf-tt") && !Nav.Uri.Contains("/lgtf-tt/rankings2") && !Nav.Uri.Contains("/lgtf-tt/alt");
-        altTTOpen     = Nav.Uri.Contains("/lgtf-tt/rankings2") || Nav.Uri.Contains("/lgtf-tt/alt");
+        altTTOpen = Nav.Uri.Contains("/lgtf-tt/rankings2") || Nav.Uri.Contains("/lgtf-tt/alt") || Nav.Uri.Contains("/tt-local");
         gamesOpen     = Nav.Uri.Contains("/tetris");
         adminOpen     = Nav.Uri.Contains("/globaladmin") || Nav.Uri.Contains("/aptauja/admin") || Nav.Uri.Contains("/valstis");
         var all = await GameService.GetAllTournamentsAsync();

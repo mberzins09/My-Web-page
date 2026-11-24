@@ -1,0 +1,104 @@
+@page "/tt-local/admin/seasons"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using MartinsWeb.Models
+@using MartinsWeb.Services
+@attribute [Authorize(Roles = "Admin")]
+@inject TtLocalService Svc
+
+<PageTitle>Local TT — Seasons</PageTitle>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/tt-local">🏓 Local tournaments</a></li>
+        <li class="breadcrumb-item active">Seasons</li>
+    </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">📅 Seasons</h4>
+    @if (!_editing)
+    {
+        <button class="btn btn-primary btn-sm" @onclick="StartCreate">➕ New season</button>
+    }
+</div>
+
+@if (_editing)
+{
+    <div class="card mb-3" style="max-width:480px">
+        <div class="card-body">
+            <h5>@(_editId == null ? "New season" : "Edit season")</h5>
+            <label class="form-label">Name</label>
+            <input class="form-control" @bind="_name" @bind:event="oninput" placeholder="e.g. Autumn 2026" />
+            @if (_error != null) { <div class="alert alert-danger mt-3 mb-0">@_error</div> }
+            <div class="d-flex gap-2 mt-3">
+                <button class="btn btn-primary" @onclick="SaveAsync">Save</button>
+                <button class="btn btn-outline-secondary" @onclick="() => _editing = false">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (_seasons.Count == 0)
+{
+    <p class="text-muted">No seasons yet. Tournaments can also exist without a season.</p>
+}
+else
+{
+    <table class="table table-sm align-middle" style="max-width:600px">
+        <thead><tr><th>Name</th><th class="text-end">Tournaments</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var s in _seasons)
+            {
+                <tr>
+                    <td>@s.Name</td>
+                    <td class="text-end">@s.Tournaments.Count</td>
+                    <td class="text-end text-nowrap">
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="() => StartEdit(s)">✏️</button>
+                        @if (_confirmDeleteId == s.Id)
+                        {
+                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteAsync(s)">Confirm delete</button>
+                            <button class="btn btn-outline-secondary btn-sm" @onclick="() => _confirmDeleteId = null">No</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-outline-danger btn-sm" @onclick="() => _confirmDeleteId = s.Id">🗑</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <div class="text-muted small">Deleting a season keeps its tournaments - they just become "no season".</div>
+}
+
+@code {
+    List<TournamentSeason> _seasons = new();
+    bool _editing;
+    int? _editId;
+    int? _confirmDeleteId;
+    string _name = "";
+    string? _error;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    async Task LoadAsync() => _seasons = await Svc.GetSeasonsAsync();
+
+    void StartCreate() { _editing = true; _editId = null; _name = ""; _error = null; }
+    void StartEdit(TournamentSeason s) { _editing = true; _editId = s.Id; _name = s.Name; _error = null; }
+
+    async Task SaveAsync()
+    {
+        _error = await Svc.SaveSeasonAsync(_editId, _name);
+        if (_error != null) return;
+        _editing = false;
+        await LoadAsync();
+    }
+
+    async Task DeleteAsync(TournamentSeason s)
+    {
+        await Svc.DeleteSeasonAsync(s.Id);
+        _confirmDeleteId = null;
+        await LoadAsync();
+    }
+}

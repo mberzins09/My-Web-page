@@ -29,6 +29,7 @@ builder.Services.AddScoped<PlayoffService>();
 builder.Services.AddScoped<ApiSportsService>();
 builder.Services.AddScoped<WinsService>();
 builder.Services.AddScoped<UserProfileService>();
+builder.Services.AddScoped<TtLocalService>();
 builder.Services.AddTransient<TeamService>();
 builder.Services.AddHostedService<ApiScoreSyncService>();
 builder.Services.AddHttpClient();
